@@ -2,19 +2,19 @@ import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_PIPE } from '@nestjs/core';
 import { BaseDeDatosModule } from './base-de-datos/base-de-datos.module';
 import { ComunModule } from './comun/comun.module';
+import { DisponibilidadModule } from './disponibilidad/disponibilidad.module';
+import { PacientesModule } from './pacientes/pacientes.module';
 import { ProcedimientosModule } from './procedimientos/procedimientos.module';
 import { SaludController } from './salud/salud.controller';
-<<<<<<< HEAD
-import { DisponibilidadModule } from './disponibilidad/disponibilidad.module';
 
 @Module({
-  imports: [BaseDeDatosModule, ComunModule, ProcedimientosModule, DisponibilidadModule],
-=======
-import { PacientesModule } from './pacientes/pacientes.module';
-
-@Module({
-  imports: [BaseDeDatosModule, ComunModule, ProcedimientosModule, PacientesModule],
->>>>>>> origin/develop
+  imports: [
+    BaseDeDatosModule,
+    ComunModule,
+    ProcedimientosModule,
+    PacientesModule,
+    DisponibilidadModule,
+  ],
   controllers: [SaludController],
   providers: [
     {
