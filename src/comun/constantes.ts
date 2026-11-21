@@ -1,1 +1,2 @@
 export const BLOQUE_MINIMO_MIN = 15;
+export const MAX_DIAS_CONSULTA_ESPACIOS = 56;
