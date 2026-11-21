@@ -6,6 +6,7 @@ import { DisponibilidadModule } from './disponibilidad/disponibilidad.module';
 import { PacientesModule } from './pacientes/pacientes.module';
 import { ProcedimientosModule } from './procedimientos/procedimientos.module';
 import { SaludController } from './salud/salud.controller';
+import { CitasModule } from './citas/citas.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { SaludController } from './salud/salud.controller';
     ProcedimientosModule,
     PacientesModule,
     DisponibilidadModule,
+    CitasModule,
   ],
   controllers: [SaludController],
   providers: [
