@@ -18,10 +18,6 @@ describe('CrearPacienteDto', () => {
     expect(await validar(validos)).toHaveLength(0);
   });
 
-  it('acepta teléfono con prefijo +', async () => {
-    expect(await validar({ ...validos, telefono: '+573001234567' })).toHaveLength(0);
-  });
-
   it.each(['nombre', 'documento', 'telefono', 'correo', 'autorizaTratamientoDatos'])(
     'rechaza si falta %s',
     async (campo) => {
@@ -36,11 +32,14 @@ describe('CrearPacienteDto', () => {
     expect(await validar({ ...validos, correo })).not.toHaveLength(0);
   });
 
-  it.each(['123', '300 123 4567', 'abcdefghij'])('rechaza el teléfono %p', async (telefono) => {
-    expect(await validar({ ...validos, telefono })).not.toHaveLength(0);
-  });
+  it.each(['123', '300 123 4567', 'abcdefghij', '+573001234567'])(
+    'rechaza el teléfono %p',
+    async (telefono) => {
+      expect(await validar({ ...validos, telefono })).not.toHaveLength(0);
+    },
+  );
 
-  it.each(['1234', 'doc con espacios', 'x'.repeat(21)])(
+  it.each(['1234', 'doc con espacios', 'x'.repeat(21), 'ABC12345', '12-345'])(
     'rechaza el documento %p',
     async (documento) => {
       expect(await validar({ ...validos, documento })).not.toHaveLength(0);

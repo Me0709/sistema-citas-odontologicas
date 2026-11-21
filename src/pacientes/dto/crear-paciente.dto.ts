@@ -12,15 +12,17 @@ export class CrearPacienteDto {
   @Transform(recortarTexto)
   @IsString({ message: 'El documento es obligatorio' })
   @IsNotEmpty({ message: 'El documento es obligatorio' })
-  @Matches(/^[0-9A-Za-z-]{5,20}$/, {
-    message: 'El documento debe tener entre 5 y 20 caracteres (letras, números o guion)',
+  @Matches(/^[0-9]{5,20}$/, {
+    message: 'El documento debe contener solo números (entre 5 y 20 dígitos)',
   })
   documento!: string;
 
   @Transform(recortarTexto)
   @IsString({ message: 'El teléfono es obligatorio' })
   @IsNotEmpty({ message: 'El teléfono es obligatorio' })
-  @Matches(/^\+?[0-9]{7,15}$/, { message: 'El teléfono debe tener entre 7 y 15 dígitos' })
+  @Matches(/^[0-9]{7,15}$/, {
+    message: 'El teléfono debe contener solo números (entre 7 y 15 dígitos)',
+  })
   telefono!: string;
 
   @Transform(recortarTexto)
