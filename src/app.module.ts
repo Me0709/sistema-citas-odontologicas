@@ -4,9 +4,10 @@ import { BaseDeDatosModule } from './base-de-datos/base-de-datos.module';
 import { ComunModule } from './comun/comun.module';
 import { ProcedimientosModule } from './procedimientos/procedimientos.module';
 import { SaludController } from './salud/salud.controller';
+import { PacientesModule } from './pacientes/pacientes.module';
 
 @Module({
-  imports: [BaseDeDatosModule, ComunModule, ProcedimientosModule],
+  imports: [BaseDeDatosModule, ComunModule, ProcedimientosModule, PacientesModule],
   controllers: [SaludController],
   providers: [
     {
