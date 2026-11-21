@@ -2,6 +2,7 @@ import {
   Alternativa,
   compararAlternativas,
   EventoDisruptivo,
+  explicarEleccion,
   proponerAlternativas,
   ResultadoReprogramacion,
 } from './alternativas';
@@ -301,5 +302,59 @@ describe('compararAlternativas', () => {
 
   it('considera iguales a dos alternativas idénticas', () => {
     expect(compararAlternativas(alternativa(30, ['10:00']), alternativa(30, ['10:00']))).toBe(0);
+  });
+});
+
+describe('explicarEleccion', () => {
+  const asignacion = (citaId: number, previsto: string, desplazamientoMin: number) => ({
+    citaId,
+    inicioPrevisto: hora(previsto),
+    inicioPropuesto: hora(previsto),
+    desplazamientoMin,
+  });
+  const alternativa = (asignaciones: ReturnType<typeof asignacion>[]): Alternativa => ({
+    asignaciones,
+    desplazamientoTotalMin: asignaciones.reduce((s, a) => s + Math.abs(a.desplazamientoMin), 0),
+    pacientesDesplazados: asignaciones.filter((a) => a.desplazamientoMin !== 0).length,
+  });
+
+  it('indica cuando es la única alternativa', () => {
+    const { criterio } = explicarEleccion(alternativa([asignacion(1, '10:00', 15)]), undefined);
+
+    expect(criterio).toBe('unica');
+  });
+
+  it('explica el criterio de las citas más tardías cuando solo cambia a quién afecta', () => {
+    const tardia = alternativa([asignacion(1, '10:00', 15), asignacion(2, '10:30', 15)]);
+    const temprana = alternativa([asignacion(1, '10:00', 15), asignacion(3, '10:15', 15)]);
+
+    const { criterio, motivo } = explicarEleccion(tardia, temprana);
+
+    expect(criterio).toBe('citas_mas_tardias');
+    expect(motivo).toContain('más tardías');
+  });
+
+  it('reconoce alternativas equivalentes cuando ningún criterio las distingue', () => {
+    const una = alternativa([asignacion(1, '10:00', 15)]);
+    const otra = alternativa([asignacion(2, '10:00', 15)]);
+
+    expect(explicarEleccion(una, otra).criterio).toBe('equivalentes');
+  });
+
+  it('elige una de varias alternativas equivalentes sin afirmar un criterio falso', () => {
+    const citas = [
+      cita(1, '10:00', 15, Flexibilidad.PUEDE_ATRASAR),
+      cita(2, '10:15', 15, Flexibilidad.PUEDE_ATRASAR),
+      cita(3, '10:30', 15, Flexibilidad.PUEDE_ATRASAR),
+    ];
+
+    const { propuesta, explicacion } = conAlternativa(
+      proponerAlternativas(citas, hora('10:30'), retraso),
+    );
+
+    expect(propuesta.desplazamientoTotalMin).toBe(90);
+    expect(propuesta.pacientesDesplazados).toBe(2);
+    expect(explicacion.criterio).toBe('equivalentes');
+    expect(explicacion.motivo).toContain('equivalentes');
   });
 });
