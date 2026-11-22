@@ -179,32 +179,32 @@ describe('EstimacionService', () => {
       expect(estimacion(3)).toMatchObject({ inicioEstimado: '10:20', cambioMin: 20 });
     });
 
-    it.each([EstadoCita.PROGRAMADA, EstadoCita.CONFIRMADA, EstadoCita.EN_SALA])(
-      'recalcula la cita en estado %s',
-      async (estado) => {
-        reloj.ahora.mockReturnValue(horaDelLunes(9, 50));
-        citasDelDia = [atencionEnCurso(), cita(2, '09:30', 30, estado)];
-
-        await servicio.recalcular(LUNES);
-
-        expect(estimacion(2)).toBeDefined();
-      },
-    );
-
     it.each([
-      EstadoCita.ATENDIDA,
-      EstadoCita.CANCELADA,
-      EstadoCita.INASISTENCIA,
+      EstadoCita.PROGRAMADA,
+      EstadoCita.CONFIRMADA,
       EstadoCita.POR_REPROGRAMAR,
-    ])('no recalcula ni cuenta una cita en estado %s', async (estado) => {
+      EstadoCita.EN_SALA,
+    ])('recalcula la cita en estado %s', async (estado) => {
       reloj.ahora.mockReturnValue(horaDelLunes(9, 50));
-      citasDelDia = [atencionEnCurso(), cita(4, '09:30', 60, estado), cita(2, '10:00')];
+      citasDelDia = [atencionEnCurso(), cita(2, '09:30', 30, estado)];
 
       await servicio.recalcular(LUNES);
 
-      expect(estimacion(4)).toBeUndefined();
-      expect(estimacion(2)).toMatchObject({ inicioEstimado: '10:00', cambioMin: 0 });
+      expect(estimacion(2)).toBeDefined();
     });
+
+    it.each([EstadoCita.ATENDIDA, EstadoCita.CANCELADA, EstadoCita.INASISTENCIA])(
+      'no recalcula ni cuenta una cita en estado %s',
+      async (estado) => {
+        reloj.ahora.mockReturnValue(horaDelLunes(9, 50));
+        citasDelDia = [atencionEnCurso(), cita(4, '09:30', 60, estado), cita(2, '10:00')];
+
+        await servicio.recalcular(LUNES);
+
+        expect(estimacion(4)).toBeUndefined();
+        expect(estimacion(2)).toMatchObject({ inicioEstimado: '10:00', cambioMin: 0 });
+      },
+    );
 
     it('no guarda nada si no hay citas pendientes', async () => {
       citasDelDia = [atencionEnCurso()];
