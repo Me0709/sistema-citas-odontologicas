@@ -321,4 +321,72 @@ describe('AlternativasService', () => {
       expect(repositorioCitas.findOneBy).not.toHaveBeenCalled();
     });
   });
+
+  describe('evaluación automática tras un evento', () => {
+    const alertas = () =>
+      repositorioNotificaciones.save.mock.calls.map(([n]) => n as Record<string, unknown>);
+
+    it('si hay alternativa que desplaza a alguien, deja la propuesta resumida para el administrador', async () => {
+      flexibilidades[2] = Flexibilidad.AMBAS;
+      citasDelDia = [atencionEnCurso(), cita(2, '09:30', 30), cita(3, '10:00', 15)];
+
+      await servicio.evaluarAutomaticamente({ tipo: 'cancelacion' });
+
+      expect(alertas()).toEqual([
+        expect.objectContaining({
+          destinatario: 'administrador',
+          destino: 'administrador',
+          tipo: 'alternativas_propuestas',
+          citaId: null,
+          pacienteId: null,
+          mensaje: expect.stringContaining('la cancelación'),
+        }),
+      ]);
+      const mensaje = String(alertas()[0].mensaje);
+      expect(mensaje).toContain('cita 2 de 09:30 a 09:50');
+      expect(mensaje).toContain('cita 3 de 10:00 a 10:20');
+      expect(mensaje).toContain('40');
+    });
+
+    it.each([
+      ['retraso', 'el aviso de retraso'],
+      ['inasistencia', 'la inasistencia'],
+      ['propuesta_rechazada', 'el rechazo de una propuesta'],
+      ['propuesta_vencida', 'el vencimiento de una propuesta'],
+    ] as const)('nombra el evento %s en el resumen', async (tipo, texto) => {
+      flexibilidades[2] = Flexibilidad.AMBAS;
+      citasDelDia = [atencionEnCurso(), cita(2, '09:30', 30)];
+
+      await servicio.evaluarAutomaticamente({ tipo });
+
+      expect(String(alertas()[0].mensaje)).toContain(texto);
+    });
+
+    it('si nadie tiene que moverse, no genera ninguna notificación', async () => {
+      reloj.ahora.mockReturnValue(horaDelLunes(9, 0));
+      citasDelDia = [cita(2, '09:30', 30)];
+
+      await servicio.evaluarAutomaticamente({ tipo: 'cancelacion' });
+
+      expect(alertas()).toEqual([]);
+    });
+
+    it('si no hay alternativa, alerta al administrador como en la consulta manual', async () => {
+      flexibilidades[2] = Flexibilidad.MANTENER;
+      citasDelDia = [atencionEnCurso(), cita(2, '09:30', 30)];
+
+      await servicio.evaluarAutomaticamente({ tipo: 'inasistencia' });
+
+      expect(alertas().map((a) => a.tipo)).toEqual(['sin_alternativas']);
+    });
+
+    it('la consulta manual no deja un resumen: el administrador ya está viendo la propuesta', async () => {
+      flexibilidades[2] = Flexibilidad.AMBAS;
+      citasDelDia = [atencionEnCurso(), cita(2, '09:30', 30)];
+
+      await proponer('cancelacion');
+
+      expect(alertas()).toEqual([]);
+    });
+  });
 });

@@ -174,4 +174,30 @@ describe('HU-10 Proponer alternativas de reprogramación', () => {
   it('responde 404 si la cita del evento no existe', async () => {
     await analizar({ evento: 'cancelacion', citaId: 999 }).expect(404);
   });
+
+  it('tras una cancelación el sistema evalúa solo y deja la propuesta para el administrador', async () => {
+    await atencionRetrasada();
+    const segunda = await crearCita('09:30');
+    const tercera = await crearCita('10:00');
+    const cancelada = await crearCita('11:00');
+    await declarar(segunda, 'ambas');
+    await declarar(tercera, 'puede_atrasar');
+
+    await api().post(`/citas/${cancelada}/cancelacion`).send({ origen: 'paciente' }).expect(200);
+
+    expect((await alertasAlAdministrador()).map((a) => a.tipo)).toContain(
+      'alternativas_propuestas',
+    );
+  });
+
+  it('tras una cancelación sin alternativa posible el sistema alerta solo al administrador', async () => {
+    await atencionRetrasada();
+    const segunda = await crearCita('09:30');
+    const cancelada = await crearCita('11:00');
+    await declarar(segunda, 'mantener');
+
+    await api().post(`/citas/${cancelada}/cancelacion`).send({ origen: 'paciente' }).expect(200);
+
+    expect((await alertasAlAdministrador()).map((a) => a.tipo)).toContain('sin_alternativas');
+  });
 });
