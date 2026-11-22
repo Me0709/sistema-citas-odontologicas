@@ -62,7 +62,7 @@ describe('EstimacionService', () => {
   let estimacionesPrevias: EstimacionCita[];
   let flexibilidades: Record<number, Flexibilidad>;
 
-  const manager = { query: jest.fn(), find: jest.fn(), save: jest.fn() };
+  const manager = { query: jest.fn(), find: jest.fn(), save: jest.fn(), delete: jest.fn() };
   const dataSource = { transaction: jest.fn() };
   const reloj = { ahora: jest.fn() };
   const flexibilidad = { porCitas: jest.fn() };
@@ -179,32 +179,32 @@ describe('EstimacionService', () => {
       expect(estimacion(3)).toMatchObject({ inicioEstimado: '10:20', cambioMin: 20 });
     });
 
-    it.each([EstadoCita.PROGRAMADA, EstadoCita.CONFIRMADA, EstadoCita.EN_SALA])(
-      'recalcula la cita en estado %s',
-      async (estado) => {
-        reloj.ahora.mockReturnValue(horaDelLunes(9, 50));
-        citasDelDia = [atencionEnCurso(), cita(2, '09:30', 30, estado)];
-
-        await servicio.recalcular(LUNES);
-
-        expect(estimacion(2)).toBeDefined();
-      },
-    );
-
     it.each([
-      EstadoCita.ATENDIDA,
-      EstadoCita.CANCELADA,
-      EstadoCita.INASISTENCIA,
+      EstadoCita.PROGRAMADA,
+      EstadoCita.CONFIRMADA,
       EstadoCita.POR_REPROGRAMAR,
-    ])('no recalcula ni cuenta una cita en estado %s', async (estado) => {
+      EstadoCita.EN_SALA,
+    ])('recalcula la cita en estado %s', async (estado) => {
       reloj.ahora.mockReturnValue(horaDelLunes(9, 50));
-      citasDelDia = [atencionEnCurso(), cita(4, '09:30', 60, estado), cita(2, '10:00')];
+      citasDelDia = [atencionEnCurso(), cita(2, '09:30', 30, estado)];
 
       await servicio.recalcular(LUNES);
 
-      expect(estimacion(4)).toBeUndefined();
-      expect(estimacion(2)).toMatchObject({ inicioEstimado: '10:00', cambioMin: 0 });
+      expect(estimacion(2)).toBeDefined();
     });
+
+    it.each([EstadoCita.ATENDIDA, EstadoCita.CANCELADA, EstadoCita.INASISTENCIA])(
+      'no recalcula ni cuenta una cita en estado %s',
+      async (estado) => {
+        reloj.ahora.mockReturnValue(horaDelLunes(9, 50));
+        citasDelDia = [atencionEnCurso(), cita(4, '09:30', 60, estado), cita(2, '10:00')];
+
+        await servicio.recalcular(LUNES);
+
+        expect(estimacion(4)).toBeUndefined();
+        expect(estimacion(2)).toMatchObject({ inicioEstimado: '10:00', cambioMin: 0 });
+      },
+    );
 
     it('no guarda nada si no hay citas pendientes', async () => {
       citasDelDia = [atencionEnCurso()];
@@ -399,6 +399,140 @@ describe('EstimacionService', () => {
     });
   });
 
+  describe('citas "Por reprogramar"', () => {
+    beforeEach(() => {
+      reloj.ahora.mockReturnValue(horaDelLunes(9, 50));
+      flexibilidades[2] = Flexibilidad.MANTENER;
+      citasDelDia = [
+        atencionEnCurso(),
+        cita(2, '09:30', 30, EstadoCita.POR_REPROGRAMAR),
+        cita(3, '10:00'),
+      ];
+    });
+
+    it('siguen ocupando su espacio: las citas siguientes esperan por ellas', async () => {
+      await servicio.recalcular(LUNES);
+
+      expect(estimacion(2)).toMatchObject({ inicioEstimado: '09:50', cambioMin: 20 });
+      expect(estimacion(3)).toMatchObject({ inicioEstimado: '10:20', cambioMin: 20 });
+    });
+
+    it('no reciben avisos ni alertas mientras la propuesta está pendiente', async () => {
+      await servicio.recalcular(LUNES);
+
+      expect(estimacion(2)?.requiereAlternativas).toBe(false);
+      expect(notificaciones().filter((n) => n.citaId === 2)).toHaveLength(0);
+      expect(notificaciones().filter((n) => n.citaId === 3)).toHaveLength(1);
+    });
+  });
+
+  describe('aviso de retraso del paciente', () => {
+    beforeEach(() => {
+      reloj.ahora.mockReturnValue(horaDelLunes(9, 0));
+    });
+
+    it('la cita se estima a la hora en que el paciente dijo que llegaría y las siguientes esperan', async () => {
+      citasDelDia = [
+        cita(1, '09:00', 30, EstadoCita.PROGRAMADA, { avisoRetrasoMin: 20 }),
+        cita(2, '09:30'),
+      ];
+
+      await servicio.recalcular(LUNES);
+
+      expect(estimacion(1)).toMatchObject({ inicioEstimado: '09:20', cambioMin: 20 });
+      expect(estimacion(2)).toMatchObject({ inicioEstimado: '09:50', cambioMin: 20 });
+    });
+
+    it('el cambio se mide contra la hora programada original', async () => {
+      citasDelDia = [cita(1, '09:00', 30, EstadoCita.CONFIRMADA, { avisoRetrasoMin: 20 })];
+
+      await servicio.recalcular(LUNES);
+
+      expect(notificaciones()).toEqual([
+        expect.objectContaining({
+          citaId: 1,
+          tipo: 'retraso',
+          mensaje: expect.stringContaining('09:20'),
+        }),
+      ]);
+    });
+
+    it.each([Flexibilidad.AMBAS, Flexibilidad.PUEDE_ADELANTAR])(
+      'no se adelanta a antes de la llegada avisada aunque pueda adelantar (%s)',
+      async (valor) => {
+        flexibilidades[1] = valor;
+        citasDelDia = [cita(1, '09:30', 30, EstadoCita.PROGRAMADA, { avisoRetrasoMin: 20 })];
+
+        await servicio.recalcular(LUNES);
+
+        expect(estimacion(1)).toMatchObject({ inicioEstimado: '09:50', cambioMin: 20 });
+      },
+    );
+
+    it('un paciente que debe mantener el horario y avisa que llega tarde se marca para evaluar alternativas', async () => {
+      flexibilidades[1] = Flexibilidad.MANTENER;
+      citasDelDia = [cita(1, '09:00', 30, EstadoCita.PROGRAMADA, { avisoRetrasoMin: 20 })];
+
+      await servicio.recalcular(LUNES);
+
+      expect(estimacion(1)?.requiereAlternativas).toBe(true);
+      expect(notificaciones().map((n) => n.destinatario)).toContain('administrador');
+    });
+
+    it('se ignora si el paciente ya llegó: ya está en sala', async () => {
+      citasDelDia = [cita(1, '09:00', 30, EstadoCita.EN_SALA, { avisoRetrasoMin: 20 })];
+
+      await servicio.recalcular(LUNES);
+
+      expect(estimacion(1)).toMatchObject({ inicioEstimado: '09:00', cambioMin: 0 });
+    });
+
+    it('sin aviso de retraso el cálculo no cambia', async () => {
+      citasDelDia = [cita(1, '09:00', 30, EstadoCita.PROGRAMADA, { avisoRetrasoMin: null })];
+
+      await servicio.recalcular(LUNES);
+
+      expect(estimacion(1)).toMatchObject({ inicioEstimado: '09:00', cambioMin: 0 });
+    });
+  });
+
+  describe('estimaciones de citas que dejaron de estar pendientes', () => {
+    const idsBorrados = (): number[] =>
+      manager.delete.mock.calls.flatMap(
+        ([, criterio]) => (criterio as { citaId: { value: number[] } }).citaId.value,
+      );
+
+    it.each([EstadoCita.CANCELADA, EstadoCita.INASISTENCIA, EstadoCita.ATENDIDA])(
+      'borra la estimación guardada de una cita %s',
+      async (estado) => {
+        citasDelDia = [cita(2, '09:30', 30, estado), cita(3, '10:00')];
+
+        await servicio.recalcular(LUNES);
+
+        expect(manager.delete).toHaveBeenCalledTimes(1);
+        expect(manager.delete.mock.calls[0][0]).toBe(EstimacionCita);
+        expect(idsBorrados()).toEqual([2]);
+      },
+    );
+
+    it('las limpia aunque no quede ninguna cita pendiente', async () => {
+      citasDelDia = [cita(2, '09:30', 30, EstadoCita.CANCELADA)];
+
+      await servicio.recalcular(LUNES);
+
+      expect(idsBorrados()).toEqual([2]);
+      expect(manager.save).not.toHaveBeenCalled();
+    });
+
+    it('no borra nada si todas las citas siguen pendientes', async () => {
+      citasDelDia = [cita(2, '09:30'), cita(3, '10:00', 30, EstadoCita.POR_REPROGRAMAR)];
+
+      await servicio.recalcular(LUNES);
+
+      expect(manager.delete).not.toHaveBeenCalled();
+    });
+  });
+
   describe('suscripción a los eventos de la agenda', () => {
     it('al iniciar se suscribe y recalcula el día de cada evento', async () => {
       citasDelDia = [atencionEnCurso(), cita(2, '09:30')];
@@ -435,6 +569,38 @@ describe('EstimacionService', () => {
         cambioMin: 0,
         requiereAlternativas: false,
       });
+    });
+
+    it.each([
+      EstadoCita.CANCELADA,
+      EstadoCita.INASISTENCIA,
+      EstadoCita.EN_ATENCION,
+      EstadoCita.ATENDIDA,
+    ])(
+      'una cita %s ya no tiene hora estimada: se devuelve la prevista aunque quede una estimación vieja',
+      async (estado) => {
+        repositorioCitas.findOneBy.mockResolvedValue(cita(2, '09:30', 30, estado));
+        repositorioEstimaciones.findOneBy.mockResolvedValue(
+          estimacionPrevia({ inicioEstimado: '09:50', cambioMin: 20, requiereAlternativas: true }),
+        );
+
+        await expect(servicio.obtener(2)).resolves.toMatchObject({
+          horaEstimada: '09:30',
+          cambioMin: 0,
+          requiereAlternativas: false,
+        });
+      },
+    );
+
+    it('una cita "Por reprogramar" conserva su estimación', async () => {
+      repositorioCitas.findOneBy.mockResolvedValue(
+        cita(2, '09:30', 30, EstadoCita.POR_REPROGRAMAR),
+      );
+      repositorioEstimaciones.findOneBy.mockResolvedValue(
+        estimacionPrevia({ inicioEstimado: '09:50', cambioMin: 20 }),
+      );
+
+      await expect(servicio.obtener(2)).resolves.toMatchObject({ horaEstimada: '09:50' });
     });
 
     it('con estimación guardada, devuelve la hora estimada y el cambio', async () => {
