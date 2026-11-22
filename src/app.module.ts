@@ -5,6 +5,7 @@ import { ComunModule } from './comun/comun.module';
 import { DisponibilidadModule } from './disponibilidad/disponibilidad.module';
 import { PacientesModule } from './pacientes/pacientes.module';
 import { ProcedimientosModule } from './procedimientos/procedimientos.module';
+import { ReprogramacionModule } from './reprogramacion/reprogramacion.module';
 import { SaludController } from './salud/salud.controller';
 import { CitasModule } from './citas/citas.module';
 import { FlexibilidadModule } from './flexibilidad/flexibilidad.module';
@@ -17,6 +18,7 @@ import { FlexibilidadModule } from './flexibilidad/flexibilidad.module';
     PacientesModule,
     DisponibilidadModule,
     CitasModule,
+    ReprogramacionModule,
     FlexibilidadModule,
   ],
   controllers: [SaludController],
