@@ -5,6 +5,7 @@ import {
   OFFSET_CONSULTORIO_MIN,
   TIEMPO_MAXIMO_ESPERA_MIN,
 } from '../comun/constantes';
+import { EventoAgenda, EventosAgenda } from '../comun/eventos-agenda';
 import { Reloj } from '../comun/reloj';
 import { aInstanteLocal, horaAMinutos, InstanteLocal, minutosAHora } from '../comun/tiempo';
 import { Cita } from './cita.entity';
@@ -33,10 +34,17 @@ export class IncidenciasService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly reloj: Reloj,
+    private readonly eventos: EventosAgenda,
   ) {}
 
   /** Escenario 1: el paciente avisa que llegará tarde. */
   async avisarRetraso(id: number, dto: AvisarRetrasoDto): Promise<Cita> {
+    const cita = await this.avisarRetrasoEnTransaccion(id, dto);
+    await this.avisarALaAgenda('aviso_retraso', cita);
+    return cita;
+  }
+
+  private avisarRetrasoEnTransaccion(id: number, dto: AvisarRetrasoDto): Promise<Cita> {
     return this.enTransaccion(async (manager) => {
       const cita = await this.obtener(manager, id);
       if (!ESTADOS_ANTES_DE_LA_LLEGADA.includes(cita.estado)) {
@@ -52,6 +60,12 @@ export class IncidenciasService {
 
   /** Escenarios 2 y 3: cancelación pedida por el paciente o hecha por el consultorio. */
   async cancelar(id: number, dto: CancelarCitaDto): Promise<RespuestaCancelacion> {
+    const respuesta = await this.cancelarEnTransaccion(id, dto);
+    await this.avisarALaAgenda('cita_cancelada', respuesta);
+    return respuesta;
+  }
+
+  private cancelarEnTransaccion(id: number, dto: CancelarCitaDto): Promise<RespuestaCancelacion> {
     return this.enTransaccion(async (manager) => {
       const cita = await this.obtener(manager, id);
       if (!ESTADOS_CANCELABLES[dto.origen].includes(cita.estado)) {
@@ -68,6 +82,15 @@ export class IncidenciasService {
 
   /** Escenario 4: el paciente no llegó dentro del tiempo máximo de espera. */
   async registrarInasistencia(id: number, dto: RegistrarInasistenciaDto): Promise<Cita> {
+    const cita = await this.registrarInasistenciaEnTransaccion(id, dto);
+    await this.avisarALaAgenda('inasistencia_registrada', cita);
+    return cita;
+  }
+
+  private registrarInasistenciaEnTransaccion(
+    id: number,
+    dto: RegistrarInasistenciaDto,
+  ): Promise<Cita> {
     return this.enTransaccion(async (manager, ahora) => {
       const cita = await this.obtener(manager, id);
       if (!ESTADOS_ANTES_DE_LA_LLEGADA.includes(cita.estado)) {
@@ -95,6 +118,17 @@ export class IncidenciasService {
       cita.estado = EstadoCita.INASISTENCIA;
       return manager.save(cita);
     });
+  }
+
+  /**
+   * Avisa a la agenda después de confirmar la transacción. Solo la agenda de hoy se recalcula:
+   * las horas estimadas se miden contra el reloj, que no dice nada de otro día.
+   */
+  private async avisarALaAgenda(tipo: EventoAgenda['tipo'], cita: Cita): Promise<void> {
+    const hoy = aInstanteLocal(this.reloj.ahora(), OFFSET_CONSULTORIO_MIN).fecha;
+    if (cita.fecha === hoy) {
+      await this.eventos.emitir({ tipo, fecha: cita.fecha });
+    }
   }
 
   /**
