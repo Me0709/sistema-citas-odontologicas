@@ -59,6 +59,8 @@ describe('HU-12 Agenda diaria del odontólogo', () => {
     api().post(`/citas/${id}/inicio-atencion`).send({ hora }).expect(200);
   const finalizar = (id: number, hora: string) =>
     api().post(`/citas/${id}/fin-atencion`).send({ hora }).expect(200);
+  const avisarRetraso = (id: number, minutos: number) =>
+    api().post(`/citas/${id}/aviso-retraso`).send({ minutos }).expect(200);
   const agenda = (fecha: string) => api().get(`/agenda?fecha=${fecha}`);
 
   beforeAll(async () => {
@@ -74,7 +76,7 @@ describe('HU-12 Agenda diaria del odontólogo', () => {
   beforeEach(async () => {
     ahora = horaDelLunes(7);
     await dataSource.query(
-      'TRUNCATE TABLE flexibilidades_cita, citas, pacientes, procedimientos, franjas_horarias RESTART IDENTITY CASCADE',
+      'TRUNCATE TABLE notificaciones, estimaciones_cita, flexibilidades_cita, citas, pacientes, procedimientos, franjas_horarias RESTART IDENTITY CASCADE',
     );
     await api()
       .put('/disponibilidad')
@@ -185,6 +187,55 @@ describe('HU-12 Agenda diaria del odontólogo', () => {
       const { citas } = (await agenda(LUNES).expect(200)).body;
 
       expect(citas[0]).toMatchObject({ estado: 'En sala', horaEstimada: '09:40', cambioMin: 10 });
+    });
+
+    it('un paciente que avisó que llegará tarde se estima a la hora de su llegada y las siguientes esperan', async () => {
+      const primera = await crearCita('09:00');
+      const segunda = await crearCita('09:30');
+      ahora = horaDelLunes(9, 0);
+      await avisarRetraso(primera.id, 20);
+
+      const { citas } = (await agenda(LUNES).expect(200)).body;
+
+      expect(citas[0]).toMatchObject({
+        horaProgramada: '09:00',
+        horaEstimada: '09:20',
+        cambioMin: 20,
+      });
+      expect(citas[1]).toMatchObject({
+        horaProgramada: '09:30',
+        horaEstimada: '09:50',
+        cambioMin: 20,
+      });
+      // La hora estimada guardada por el recálculo de la agenda coincide con la que muestra la agenda.
+      const guardada = await api().get(`/citas/${segunda.id}/hora-estimada`).expect(200);
+      expect(guardada.body).toMatchObject({ horaEstimada: '09:50', cambioMin: 20 });
+    });
+
+    it('quien avisó que llegará tarde no se adelanta a antes de su llegada aunque pueda adelantar', async () => {
+      const cita = await crearCita('10:00');
+      await api()
+        .put(`/citas/${cita.id}/flexibilidad`)
+        .send({ flexibilidad: 'puede_adelantar' })
+        .expect(200);
+      ahora = horaDelLunes(9, 30);
+      await avisarRetraso(cita.id, 20);
+
+      const { citas } = (await agenda(LUNES).expect(200)).body;
+
+      expect(citas[0]).toMatchObject({ horaEstimada: '10:20', cambioMin: 20 });
+    });
+
+    it('el aviso de retraso se ignora si el paciente ya llegó: ya está en sala', async () => {
+      const cita = await crearCita('09:00');
+      ahora = horaDelLunes(8, 50);
+      await avisarRetraso(cita.id, 20);
+      await llegar(cita.id, '09:00');
+      ahora = horaDelLunes(9, 5);
+
+      const { citas } = (await agenda(LUNES).expect(200)).body;
+
+      expect(citas[0]).toMatchObject({ estado: 'En sala', horaEstimada: '09:05', cambioMin: 5 });
     });
 
     it('otro día no se recalcula: cada cita conserva su hora', async () => {
