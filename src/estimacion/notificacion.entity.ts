@@ -6,6 +6,7 @@ export type TipoNotificacion =
   | 'adelanto'
   | 'requiere_alternativas'
   | 'sin_alternativas'
+  | 'alternativas_propuestas'
   | 'cita_cancelada'
   | 'propuesta_rechazada'
   | 'propuesta_vencida';
