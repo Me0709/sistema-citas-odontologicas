@@ -18,6 +18,7 @@ import {
   EventoDisruptivo,
   Explicacion,
   proponerAlternativas,
+  TipoEvento,
 } from './dominio/alternativas';
 import { Flexibilidad } from './dominio/flexibilidad';
 import { CitaPendiente, recalcularHorasEstimadas } from './dominio/hora-estimada';
@@ -66,6 +67,30 @@ export type RespuestaAlternativas =
       motivo: string;
     });
 
+const EVENTOS: Record<TipoEvento, string> = {
+  retraso: 'el aviso de retraso',
+  cancelacion: 'la cancelación',
+  inasistencia: 'la inasistencia',
+  propuesta_rechazada: 'el rechazo de una propuesta de reprogramación',
+  propuesta_vencida: 'el vencimiento de una propuesta de reprogramación',
+};
+
+function resumenDeLaPropuesta(
+  evento: EventoDisruptivo,
+  propuesta: AlternativaPropuesta,
+  otras: number,
+): string {
+  const cambios = propuesta.asignaciones
+    .filter((a) => a.desplazamientoMin !== 0)
+    .map((a) => `cita ${a.citaId} de ${a.horaPrevista} a ${a.horaPropuesta}`)
+    .join('; ');
+  return (
+    `Tras ${EVENTOS[evento.tipo]}, el sistema propone: ${cambios} ` +
+    `(desplazamiento total ${propuesta.desplazamientoTotalMin} min). ` +
+    `Hay ${otras} alternativa(s) más; consulte POST /agenda/alternativas para el detalle.`
+  );
+}
+
 @Injectable()
 export class AlternativasService {
   constructor(
@@ -83,8 +108,29 @@ export class AlternativasService {
     if (dto.citaId !== undefined && !(await this.citas.findOneBy({ id: dto.citaId }))) {
       throw new NotFoundException(`No existe la cita ${dto.citaId}`);
     }
-    const evento: EventoDisruptivo = { tipo: dto.evento, citaId: dto.citaId };
+    return this.analizar({ tipo: dto.evento, citaId: dto.citaId });
+  }
 
+  /**
+   * Evalúa la agenda sin que nadie lo pida, tras un evento de la agenda. Si hay una alternativa que
+   * mueve a algún paciente, deja el resumen para el administrador; si no hay ninguna, el análisis
+   * ya lo alerta.
+   */
+  async evaluarAutomaticamente(evento: EventoDisruptivo): Promise<void> {
+    const respuesta = await this.analizar(evento);
+    if (respuesta.hayAlternativa && respuesta.propuesta.pacientesDesplazados > 0) {
+      await this.notificaciones.save({
+        destinatario: 'administrador',
+        pacienteId: null,
+        citaId: null,
+        tipo: 'alternativas_propuestas',
+        destino: 'administrador',
+        mensaje: resumenDeLaPropuesta(evento, respuesta.propuesta, respuesta.otras.length),
+      });
+    }
+  }
+
+  private async analizar(evento: EventoDisruptivo): Promise<RespuestaAlternativas> {
     const ahora = aInstanteLocal(this.reloj.ahora(), OFFSET_CONSULTORIO_MIN);
     const fecha = ahora.fecha;
     const delDia = await this.citas.find({ where: { fecha } });

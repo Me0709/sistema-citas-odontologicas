@@ -5,7 +5,8 @@ import { CitaPendiente, recalcularHorasEstimadas } from './hora-estimada';
 const MS_POR_MINUTO = 60_000;
 const MAX_OTRAS_ALTERNATIVAS = 3;
 
-export type TipoEvento = 'retraso' | 'cancelacion' | 'inasistencia';
+export type TipoEvento =
+  'retraso' | 'cancelacion' | 'inasistencia' | 'propuesta_rechazada' | 'propuesta_vencida';
 
 /** Hecho que alteró la agenda y originó la reprogramación. */
 export interface EventoDisruptivo {

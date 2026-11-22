@@ -6,6 +6,7 @@ import { Notificacion } from '../estimacion/notificacion.entity';
 import { FlexibilidadModule } from '../flexibilidad/flexibilidad.module';
 import { AlternativasController } from './alternativas.controller';
 import { AlternativasService } from './alternativas.service';
+import { EvaluacionAutomatica } from './evaluacion-automatica';
 
 @Module({
   imports: [
@@ -14,6 +15,6 @@ import { AlternativasService } from './alternativas.service';
     FlexibilidadModule,
   ],
   controllers: [AlternativasController],
-  providers: [AlternativasService],
+  providers: [AlternativasService, EvaluacionAutomatica],
 })
 export class ReordenamientoModule {}
