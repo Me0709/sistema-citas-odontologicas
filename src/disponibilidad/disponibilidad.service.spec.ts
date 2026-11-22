@@ -2,6 +2,10 @@ import { BadRequestException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { Cita } from '../citas/cita.entity';
+import { EstadoCita } from '../citas/estado-cita';
+import { LLAVE_BLOQUEO_AGENDA } from '../comun/constantes';
+import { Reloj } from '../comun/reloj';
 import { DisponibilidadService } from './disponibilidad.service';
 import { FranjaHoraria } from './franja-horaria.entity';
 
@@ -10,6 +14,7 @@ type FranjaParcial = Partial<FranjaHoraria>;
 function crearEntorno() {
   const manager = {
     query: jest.fn(),
+    find: jest.fn().mockResolvedValue([]),
     save: jest.fn((_clase: unknown, franjas: FranjaParcial[]) =>
       Promise.resolve(franjas.map((f, i) => ({ id: i + 1, ...f }))),
     ),
@@ -18,7 +23,9 @@ function crearEntorno() {
     transaction: jest.fn((accion: (m: typeof manager) => Promise<unknown>) => accion(manager)),
   };
   const repositorio = { find: jest.fn() };
-  return { manager, dataSource, repositorio };
+  // Reloj falso: por defecto es el 21 de noviembre de 2026, anterior a todas las citas de estas pruebas.
+  const reloj = { ahora: jest.fn(() => new Date('2026-11-21T15:00:00Z')) };
+  return { manager, dataSource, repositorio, reloj };
 }
 
 const lunesManana = { diaSemana: 1, horaInicio: '08:00', horaFin: '12:00' };
@@ -34,6 +41,7 @@ describe('DisponibilidadService', () => {
         DisponibilidadService,
         { provide: getRepositoryToken(FranjaHoraria), useValue: entorno.repositorio },
         { provide: DataSource, useValue: entorno.dataSource },
+        { provide: Reloj, useValue: entorno.reloj },
       ],
     }).compile();
     servicio = modulo.get(DisponibilidadService);
@@ -89,6 +97,113 @@ describe('DisponibilidadService', () => {
         servicio.definir({ franjas: [{ diaSemana: 1, horaInicio: '08:10', horaFin: '12:00' }] }),
       ).rejects.toThrow(BadRequestException);
       expect(entorno.dataSource.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('citas afectadas por el cambio de horario', () => {
+    const citaDe = (datos: Partial<Cita>): Cita =>
+      ({
+        id: 1,
+        pacienteId: 7,
+        procedimientoId: 1,
+        fecha: '2026-11-23',
+        horaInicio: '09:00',
+        horaFin: '09:30',
+        duracionMin: 30,
+        estado: EstadoCita.PROGRAMADA,
+        ...datos,
+      }) as Cita;
+
+    it('toma el bloqueo de la agenda para no cruzarse con la creación de citas', async () => {
+      await servicio.definir({ franjas: [lunesManana] });
+      expect(entorno.manager.query).toHaveBeenCalledWith('SELECT pg_advisory_xact_lock($1)', [
+        LLAVE_BLOQUEO_AGENDA,
+      ]);
+    });
+
+    it('pasa a "Por reprogramar" las citas que quedan fuera del nuevo horario y las informa', async () => {
+      entorno.manager.find.mockResolvedValue([
+        citaDe({ id: 1 }),
+        citaDe({ id: 2, horaInicio: '15:00', horaFin: '15:30' }),
+        citaDe({ id: 3, fecha: '2026-11-24', estado: EstadoCita.CONFIRMADA }),
+      ]);
+
+      const respuesta = await servicio.definir({ franjas: [lunesManana] });
+
+      expect(respuesta.citasAfectadas).toEqual([
+        expect.objectContaining({
+          id: 2,
+          estadoAnterior: EstadoCita.PROGRAMADA,
+          estado: EstadoCita.POR_REPROGRAMAR,
+        }),
+        expect.objectContaining({
+          id: 3,
+          estadoAnterior: EstadoCita.CONFIRMADA,
+          estado: EstadoCita.POR_REPROGRAMAR,
+        }),
+      ]);
+      expect(entorno.manager.save).toHaveBeenLastCalledWith(Cita, [
+        expect.objectContaining({ id: 2, estado: EstadoCita.POR_REPROGRAMAR }),
+        expect.objectContaining({ id: 3, estado: EstadoCita.POR_REPROGRAMAR }),
+      ]);
+    });
+
+    it('no toca las citas que siguen cabiendo en el nuevo horario', async () => {
+      entorno.manager.find.mockResolvedValue([citaDe({ id: 1 })]);
+
+      const respuesta = await servicio.definir({ franjas: [lunesManana] });
+
+      expect(respuesta.citasAfectadas).toEqual([]);
+      expect(entorno.manager.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('una cita que empieza dentro de la jornada pero termina después queda afectada', async () => {
+      entorno.manager.find.mockResolvedValue([
+        citaDe({ id: 4, horaInicio: '11:45', horaFin: '12:15' }),
+      ]);
+
+      const respuesta = await servicio.definir({ franjas: [lunesManana] });
+
+      expect(respuesta.citasAfectadas).toHaveLength(1);
+    });
+
+    it('no toca las citas de días anteriores ni las que ya empezaron', async () => {
+      // Lunes 2026-11-23 a las 10:00 en Colombia.
+      entorno.reloj.ahora.mockReturnValue(new Date('2026-11-23T15:00:00Z'));
+      entorno.manager.find.mockResolvedValue([
+        citaDe({ id: 1, fecha: '2026-11-22' }),
+        citaDe({ id: 2, horaInicio: '09:00', horaFin: '09:30' }),
+        citaDe({ id: 3, horaInicio: '10:00', horaFin: '10:30' }),
+        citaDe({ id: 4, horaInicio: '10:15', horaFin: '10:45' }),
+        citaDe({ id: 5, horaInicio: '15:00', horaFin: '15:30' }),
+      ]);
+
+      // El nuevo horario solo atiende los martes, así que todas quedarían fuera.
+      const respuesta = await servicio.definir({
+        franjas: [{ diaSemana: 2, horaInicio: '08:00', horaFin: '12:00' }],
+      });
+
+      expect(respuesta.citasAfectadas.map((c) => c.id)).toEqual([4, 5]);
+      expect(entorno.manager.save).toHaveBeenLastCalledWith(Cita, [
+        expect.objectContaining({ id: 4 }),
+        expect.objectContaining({ id: 5 }),
+      ]);
+    });
+
+    it('compara en hora del consultorio (UTC-5) y no en UTC', async () => {
+      // 03:00 UTC del martes = lunes 22:00 en Colombia.
+      entorno.reloj.ahora.mockReturnValue(new Date('2026-11-24T03:00:00Z'));
+      entorno.manager.find.mockResolvedValue([
+        citaDe({ id: 1, horaInicio: '21:00', horaFin: '21:30' }),
+        citaDe({ id: 2, fecha: '2026-11-24', horaInicio: '08:00', horaFin: '08:30' }),
+      ]);
+
+      // El nuevo horario solo atiende los miércoles.
+      const respuesta = await servicio.definir({
+        franjas: [{ diaSemana: 3, horaInicio: '08:00', horaFin: '12:00' }],
+      });
+
+      expect(respuesta.citasAfectadas.map((c) => c.id)).toEqual([2]);
     });
   });
 

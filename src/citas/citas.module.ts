@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { DisponibilidadModule } from '../disponibilidad/disponibilidad.module';
+import { FranjaHoraria } from '../disponibilidad/franja-horaria.entity';
 import { PacientesModule } from '../pacientes/pacientes.module';
 import { ProcedimientosModule } from '../procedimientos/procedimientos.module';
 import { Cita } from './cita.entity';
@@ -10,12 +10,7 @@ import { LlegadasController } from './llegadas.controller';
 import { LlegadasService } from './llegadas.service';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Cita]),
-    PacientesModule,
-    ProcedimientosModule,
-    DisponibilidadModule,
-  ],
+  imports: [TypeOrmModule.forFeature([Cita, FranjaHoraria]), PacientesModule, ProcedimientosModule],
   controllers: [CitasController, LlegadasController],
   providers: [CitasService, LlegadasService],
   exports: [CitasService],
