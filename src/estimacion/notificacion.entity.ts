@@ -2,7 +2,13 @@ import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeor
 
 export type DestinatarioNotificacion = 'paciente' | 'administrador';
 export type TipoNotificacion =
-  'retraso' | 'adelanto' | 'requiere_alternativas' | 'sin_alternativas';
+  | 'retraso'
+  | 'adelanto'
+  | 'requiere_alternativas'
+  | 'sin_alternativas'
+  | 'cita_cancelada'
+  | 'propuesta_rechazada'
+  | 'propuesta_vencida';
 
 /**
  * Aviso generado por el sistema. Queda registrado con su destino y su mensaje; todavía no hay

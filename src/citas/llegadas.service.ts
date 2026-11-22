@@ -6,6 +6,7 @@ import {
   TIEMPO_MAXIMO_ESPERA_MIN,
   TOLERANCIA_PUNTUALIDAD_MIN,
 } from '../comun/constantes';
+import { EventosAgenda } from '../comun/eventos-agenda';
 import { Reloj } from '../comun/reloj';
 import { aInstanteLocal, horaAMinutos, minutosAHora } from '../comun/tiempo';
 import { Cita } from './cita.entity';
@@ -19,12 +20,13 @@ export class LlegadasService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly reloj: Reloj,
+    private readonly eventos: EventosAgenda,
   ) {}
 
   async registrar(id: number, dto: RegistrarLlegadaDto): Promise<Cita> {
     const ahora = aInstanteLocal(this.reloj.ahora(), OFFSET_CONSULTORIO_MIN);
 
-    return this.dataSource.transaction(async (manager) => {
+    const registrada = await this.dataSource.transaction(async (manager) => {
       // La cita se lee después de tomar el bloqueo de la agenda, para no pisar un cambio
       // de horario (HU-03) ni una marca de inasistencia (HU-08) que ocurran a la vez.
       await manager.query('SELECT pg_advisory_xact_lock($1)', [LLAVE_BLOQUEO_AGENDA]);
@@ -63,6 +65,10 @@ export class LlegadasService {
       cita.estado = EstadoCita.EN_SALA;
       return manager.save(cita);
     });
+
+    // Después de confirmar la llegada se recalculan las horas estimadas del día (HU-09).
+    await this.eventos.emitir({ tipo: 'llegada_registrada', fecha: registrada.fecha });
+    return registrada;
   }
 
   private errorInasistencia(mensaje: string, cita: Cita): ConflictException {

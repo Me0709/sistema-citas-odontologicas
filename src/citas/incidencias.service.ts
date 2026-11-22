@@ -7,6 +7,7 @@ import {
 } from '../comun/constantes';
 import { EventoAgenda, EventosAgenda } from '../comun/eventos-agenda';
 import { Reloj } from '../comun/reloj';
+import { notificarAlPaciente } from '../estimacion/notificar';
 import { aInstanteLocal, horaAMinutos, InstanteLocal, minutosAHora } from '../comun/tiempo';
 import { Cita } from './cita.entity';
 import { AvisarRetrasoDto } from './dto/avisar-retraso.dto';
@@ -76,7 +77,19 @@ export class IncidenciasService {
       cita.canceladaPor = dto.origen;
       cita.motivoCancelacion = dto.motivo ?? null;
       const guardada = await manager.save(cita);
-      return { ...guardada, ofreceReprogramar: dto.origen === OrigenCancelacion.CONSULTORIO };
+
+      const canceladaPorElConsultorio = dto.origen === OrigenCancelacion.CONSULTORIO;
+      if (canceladaPorElConsultorio) {
+        await notificarAlPaciente(manager, {
+          pacienteId: cita.pacienteId,
+          citaId: cita.id,
+          tipo: 'cita_cancelada',
+          mensaje:
+            `El consultorio canceló su cita del ${cita.fecha} a las ${cita.horaInicio}. ` +
+            `Motivo: ${dto.motivo}. Puede reprogramarla cuando lo desee.`,
+        });
+      }
+      return { ...guardada, ofreceReprogramar: canceladaPorElConsultorio };
     });
   }
 
