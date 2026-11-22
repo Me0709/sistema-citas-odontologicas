@@ -1,11 +1,14 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { TIEMPO_MAXIMO_ESPERA_MIN, TOLERANCIA_PUNTUALIDAD_MIN } from '../comun/constantes';
+import { DataSource } from 'typeorm';
+import {
+  LLAVE_BLOQUEO_AGENDA,
+  OFFSET_CONSULTORIO_MIN,
+  TIEMPO_MAXIMO_ESPERA_MIN,
+  TOLERANCIA_PUNTUALIDAD_MIN,
+} from '../comun/constantes';
 import { Reloj } from '../comun/reloj';
-import { horaAMinutos } from '../comun/tiempo';
+import { aInstanteLocal, horaAMinutos, minutosAHora } from '../comun/tiempo';
 import { Cita } from './cita.entity';
-import { horaIndicadaOActual } from './hora-actual';
 import { RegistrarLlegadaDto } from './dto/registrar-llegada.dto';
 import { EstadoCita } from './estado-cita';
 
@@ -14,40 +17,52 @@ const ESTADOS_QUE_ADMITEN_LLEGADA: EstadoCita[] = [EstadoCita.PROGRAMADA, Estado
 @Injectable()
 export class LlegadasService {
   constructor(
-    @InjectRepository(Cita)
-    private readonly repositorio: Repository<Cita>,
+    private readonly dataSource: DataSource,
     private readonly reloj: Reloj,
   ) {}
 
   async registrar(id: number, dto: RegistrarLlegadaDto): Promise<Cita> {
-    const cita = await this.repositorio.findOneBy({ id });
-    if (!cita) {
-      throw new NotFoundException(`No existe la cita ${id}`);
-    }
+    const ahora = aInstanteLocal(this.reloj.ahora(), OFFSET_CONSULTORIO_MIN);
 
-    if (cita.estado === EstadoCita.INASISTENCIA) {
-      throw this.errorInasistencia('La cita ya figura como inasistencia', cita);
-    }
-    if (!ESTADOS_QUE_ADMITEN_LLEGADA.includes(cita.estado)) {
-      throw new ConflictException(
-        `No se puede registrar la llegada de una cita en estado "${cita.estado}"`,
-      );
-    }
+    return this.dataSource.transaction(async (manager) => {
+      // La cita se lee después de tomar el bloqueo de la agenda, para no pisar un cambio
+      // de horario (HU-03) ni una marca de inasistencia (HU-08) que ocurran a la vez.
+      await manager.query('SELECT pg_advisory_xact_lock($1)', [LLAVE_BLOQUEO_AGENDA]);
 
-    const horaLlegada = horaIndicadaOActual(this.reloj, cita, dto.horaLlegada);
-    const diferencia = horaAMinutos(horaLlegada) - horaAMinutos(cita.horaInicio);
+      const cita = await manager.findOneBy(Cita, { id });
+      if (!cita) {
+        throw new NotFoundException(`No existe la cita ${id}`);
+      }
 
-    if (diferencia > TIEMPO_MAXIMO_ESPERA_MIN) {
-      throw this.errorInasistencia(
-        `El paciente superó el tiempo máximo de espera de ${TIEMPO_MAXIMO_ESPERA_MIN} minutos; la cita debe registrarse como inasistencia`,
-        cita,
-      );
-    }
+      if (cita.estado === EstadoCita.INASISTENCIA) {
+        throw this.errorInasistencia('La cita ya figura como inasistencia', cita);
+      }
+      if (!ESTADOS_QUE_ADMITEN_LLEGADA.includes(cita.estado)) {
+        throw new ConflictException(
+          `No se puede registrar la llegada de una cita en estado "${cita.estado}"`,
+        );
+      }
+      if (cita.fecha !== ahora.fecha) {
+        throw new ConflictException(
+          `La cita es del ${cita.fecha}; la llegada solo se registra el día de la cita`,
+        );
+      }
 
-    cita.horaLlegada = horaLlegada;
-    cita.minutosRetraso = diferencia > TOLERANCIA_PUNTUALIDAD_MIN ? diferencia : 0;
-    cita.estado = EstadoCita.EN_SALA;
-    return this.repositorio.save(cita);
+      const horaLlegada = dto.horaLlegada ?? minutosAHora(ahora.minutos);
+      const diferencia = horaAMinutos(horaLlegada) - horaAMinutos(cita.horaInicio);
+
+      if (diferencia > TIEMPO_MAXIMO_ESPERA_MIN) {
+        throw this.errorInasistencia(
+          `El paciente superó el tiempo máximo de espera de ${TIEMPO_MAXIMO_ESPERA_MIN} minutos; la cita debe registrarse como inasistencia`,
+          cita,
+        );
+      }
+
+      cita.horaLlegada = horaLlegada;
+      cita.minutosRetraso = diferencia > TOLERANCIA_PUNTUALIDAD_MIN ? diferencia : 0;
+      cita.estado = EstadoCita.EN_SALA;
+      return manager.save(cita);
+    });
   }
 
   private errorInasistencia(mensaje: string, cita: Cita): ConflictException {

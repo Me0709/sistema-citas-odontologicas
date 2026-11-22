@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
+import { Reloj } from '../src/comun/reloj';
 
 describe('HU-06 Registrar la llegada del paciente', () => {
   let app: INestApplication;
@@ -11,6 +12,9 @@ describe('HU-06 Registrar la llegada del paciente', () => {
 
   // El 2026-11-23 es lunes; el horario de prueba es lunes 08:00-12:00 y 14:00-18:00.
   const LUNES = '2026-11-23';
+
+  // La hora del consultorio es UTC-5: 14:00 UTC es la 09:00 del lunes en Colombia.
+  let ahora = new Date('2026-11-23T14:00:00Z');
 
   const api = () => request(app.getHttpServer());
 
@@ -48,13 +52,17 @@ describe('HU-06 Registrar la llegada del paciente', () => {
   const obtenerCita = async (id: number) => (await api().get(`/citas/${id}`).expect(200)).body;
 
   beforeAll(async () => {
-    const modulo = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const modulo = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(Reloj)
+      .useValue({ ahora: () => ahora })
+      .compile();
     app = modulo.createNestApplication();
     await app.init();
     dataSource = app.get(DataSource);
   });
 
   beforeEach(async () => {
+    ahora = new Date('2026-11-23T14:00:00Z');
     await dataSource.query(
       'TRUNCATE TABLE citas, pacientes, procedimientos, franjas_horarias RESTART IDENTITY CASCADE',
     );
@@ -136,6 +144,48 @@ describe('HU-06 Registrar la llegada del paciente', () => {
     const respuesta = await registrarLlegada(id, { horaLlegada: '09:16' }).expect(409);
 
     expect(respuesta.body.ofreceReprogramar).toBe(true);
+    expect((await obtenerCita(id)).estado).toBe('Programada');
+  });
+
+  it('sin horaLlegada usa el reloj en hora del consultorio', async () => {
+    const id = await crearCita('09:00');
+    ahora = new Date('2026-11-23T14:08:00Z');
+
+    const respuesta = await registrarLlegada(id).expect(200);
+
+    expect(respuesta.body).toMatchObject({
+      estado: 'En sala',
+      horaLlegada: '09:08',
+      minutosRetraso: 8,
+    });
+  });
+
+  it('con el reloj, llegar a las 09:06 cuenta 6 minutos de retraso y a las 09:15 todavía se acepta', async () => {
+    const primera = await crearCita('09:00');
+    const segunda = await crearCita('09:30');
+
+    ahora = new Date('2026-11-23T14:06:00Z');
+    expect((await registrarLlegada(primera).expect(200)).body.minutosRetraso).toBe(6);
+
+    ahora = new Date('2026-11-23T14:45:00Z');
+    expect((await registrarLlegada(segunda).expect(200)).body.minutosRetraso).toBe(15);
+  });
+
+  it('con el reloj, a las 09:16 ya no se acepta y se ofrece reprogramar', async () => {
+    const id = await crearCita('09:00');
+    ahora = new Date('2026-11-23T14:16:00Z');
+
+    const respuesta = await registrarLlegada(id).expect(409);
+
+    expect(respuesta.body.ofreceReprogramar).toBe(true);
+  });
+
+  it('solo se registra la llegada el día de la cita, también cuando se envía la hora', async () => {
+    const id = await crearCita('09:00');
+    ahora = new Date('2026-11-24T14:00:00Z');
+
+    await registrarLlegada(id, { horaLlegada: '09:00' }).expect(409);
+    await registrarLlegada(id).expect(409);
     expect((await obtenerCita(id)).estado).toBe('Programada');
   });
 
