@@ -35,6 +35,7 @@ function crearRepositoriosFalsos() {
       save: jest.fn(),
       find: jest.fn(),
       findOneBy: jest.fn(),
+      existsBy: jest.fn(),
     },
     citas: { find: jest.fn() },
   };
@@ -156,6 +157,30 @@ describe('PacientesService', () => {
       repos.pacientes.findOneBy.mockResolvedValue(null);
 
       await expect(servicio.obtener(99)).rejects.toThrow(NotFoundException);
+      expect(repos.citas.find).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('existe', () => {
+    it('no lanza error si el paciente existe', async () => {
+      repos.pacientes.existsBy.mockResolvedValue(true);
+
+      await expect(servicio.existe(1)).resolves.toBeUndefined();
+      expect(repos.pacientes.existsBy).toHaveBeenCalledWith({ id: 1 });
+    });
+
+    it('lanza NotFound si el paciente no existe', async () => {
+      repos.pacientes.existsBy.mockResolvedValue(false);
+
+      await expect(servicio.existe(99)).rejects.toThrow(NotFoundException);
+    });
+
+    it('no carga al paciente ni consulta su historial de citas', async () => {
+      repos.pacientes.existsBy.mockResolvedValue(true);
+
+      await servicio.existe(1);
+
+      expect(repos.pacientes.findOneBy).not.toHaveBeenCalled();
       expect(repos.citas.find).not.toHaveBeenCalled();
     });
   });
