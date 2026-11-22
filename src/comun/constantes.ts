@@ -1,0 +1,5 @@
+export const BLOQUE_MINIMO_MIN = 15;
+export const MAX_DIAS_CONSULTA_ESPACIOS = 56;
+export const DIAS_BUSQUEDA_SUGERENCIAS = 14;
+export const CANTIDAD_SUGERENCIAS = 3;
+export const LLAVE_BLOQUEO_AGENDA = 4001;
