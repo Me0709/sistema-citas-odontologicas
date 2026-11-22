@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
+import { Reloj } from '../src/comun/reloj';
 
 describe('HU-08 Registrar retraso, cancelación o inasistencia', () => {
   let app: INestApplication;
@@ -11,6 +12,9 @@ describe('HU-08 Registrar retraso, cancelación o inasistencia', () => {
 
   // El 2026-11-23 es lunes; el horario de prueba es lunes 08:00-12:00 y 14:00-18:00.
   const LUNES = '2026-11-23';
+
+  // La hora del consultorio es UTC-5: 14:00 UTC es la 09:00 del lunes en Colombia.
+  let ahora = new Date('2026-11-23T14:00:00Z');
 
   const api = () => request(app.getHttpServer());
 
@@ -58,13 +62,17 @@ describe('HU-08 Registrar retraso, cancelación o inasistencia', () => {
   const obtenerCita = async (id: number) => (await api().get(`/citas/${id}`).expect(200)).body;
 
   beforeAll(async () => {
-    const modulo = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const modulo = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(Reloj)
+      .useValue({ ahora: () => ahora })
+      .compile();
     app = modulo.createNestApplication();
     await app.init();
     dataSource = app.get(DataSource);
   });
 
   beforeEach(async () => {
+    ahora = new Date('2026-11-23T14:00:00Z');
     await dataSource.query(
       'TRUNCATE TABLE citas, pacientes, procedimientos, franjas_horarias RESTART IDENTITY CASCADE',
     );
@@ -189,6 +197,25 @@ describe('HU-08 Registrar retraso, cancelación o inasistencia', () => {
 
       const otroPaciente = await crearPaciente();
       await programar(otroPaciente, procedimientoId, '09:00').expect(201);
+    });
+
+    it('sin hora indicada usa el reloj en hora del consultorio', async () => {
+      const { id } = await crearCita('09:00');
+
+      ahora = new Date('2026-11-23T14:15:00Z');
+      await registrarInasistencia(id).expect(409);
+
+      ahora = new Date('2026-11-23T14:16:00Z');
+      await registrarInasistencia(id).expect(200);
+      expect((await obtenerCita(id)).estado).toBe('Inasistencia');
+    });
+
+    it('no se puede registrar la inasistencia de una cita de un día futuro', async () => {
+      const { id } = await crearCita('09:00');
+      ahora = new Date('2026-11-22T14:00:00Z');
+
+      await registrarInasistencia(id, { hora: '09:30' }).expect(409);
+      expect((await obtenerCita(id)).estado).toBe('Programada');
     });
 
     it('queda en el historial del paciente', async () => {
