@@ -99,7 +99,9 @@ describe('HU-08 Las incidencias recalculan la agenda del día (HU-09)', () => {
 
     await api().post(`/citas/${primera}/aviso-retraso`).send({ minutos: 20 }).expect(200);
 
-    expect(await horaEstimada(segunda)).toMatchObject({ horaEstimada: '09:30', cambioMin: 0 });
+    // El paciente llega a las 09:20 y su cita dura 30 minutos: la siguiente empieza a las 09:50.
+    expect(await horaEstimada(primera)).toMatchObject({ horaEstimada: '09:20', cambioMin: 20 });
+    expect(await horaEstimada(segunda)).toMatchObject({ horaEstimada: '09:50', cambioMin: 20 });
     expect(await estimacionesGuardadas()).toBe(2);
   });
 
