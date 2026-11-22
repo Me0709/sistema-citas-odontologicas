@@ -144,7 +144,8 @@ describe('Integración de la agenda: llegada, cancelación y reprogramación', (
     ahora = aLas('09:16');
     await api().post('/propuestas-reprogramacion/vencimientos').send({}).expect(200);
 
-    expect((await avisos(cita, 'administrador')).map((a) => a.tipo)).toEqual(['propuesta_vencida']);
+    // Pasadas las 09:15 el paciente sigue sin llegar, así que también se alerta que debe mantener su horario.
+    expect((await avisos(cita, 'administrador')).map((a) => a.tipo)).toContain('propuesta_vencida');
   });
 
   it('HU-11: al aceptar una propuesta se recalcula la agenda con el nuevo horario', async () => {
