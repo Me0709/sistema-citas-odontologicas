@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { LLAVE_BLOQUEO_AGENDA, OFFSET_CONSULTORIO_MIN } from '../comun/constantes';
+import { EventosAgenda } from '../comun/eventos-agenda';
 import { Reloj } from '../comun/reloj';
 import { aInstanteLocal, horaAMinutos, InstanteLocal } from '../comun/tiempo';
 import { Cita } from './cita.entity';
@@ -20,9 +21,22 @@ export class AtencionService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly reloj: Reloj,
+    private readonly eventos: EventosAgenda,
   ) {}
 
   async iniciar(id: number, dto: RegistrarHoraAtencionDto): Promise<Cita> {
+    const cita = await this.iniciarEnTransaccion(id, dto);
+    await this.eventos.emitir({ tipo: 'atencion_iniciada', fecha: cita.fecha });
+    return cita;
+  }
+
+  async finalizar(id: number, dto: RegistrarHoraAtencionDto): Promise<Cita> {
+    const cita = await this.finalizarEnTransaccion(id, dto);
+    await this.eventos.emitir({ tipo: 'atencion_finalizada', fecha: cita.fecha });
+    return cita;
+  }
+
+  private iniciarEnTransaccion(id: number, dto: RegistrarHoraAtencionDto): Promise<Cita> {
     return this.enTransaccion(async (manager, ahora) => {
       const cita = await this.obtener(manager, id);
 
@@ -50,7 +64,7 @@ export class AtencionService {
     });
   }
 
-  async finalizar(id: number, dto: RegistrarHoraAtencionDto): Promise<Cita> {
+  private finalizarEnTransaccion(id: number, dto: RegistrarHoraAtencionDto): Promise<Cita> {
     return this.enTransaccion(async (manager, ahora) => {
       const cita = await this.obtener(manager, id);
 

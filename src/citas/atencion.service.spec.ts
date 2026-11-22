@@ -7,6 +7,7 @@ import {
 import { Test } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 import { LLAVE_BLOQUEO_AGENDA } from '../comun/constantes';
+import { EventosAgenda } from '../comun/eventos-agenda';
 import { Reloj } from '../comun/reloj';
 import { AtencionService } from './atencion.service';
 import { Cita } from './cita.entity';
@@ -54,6 +55,7 @@ describe('AtencionService', () => {
   const repositorio = { findOneBy: jest.fn(), save: jest.fn(), query: jest.fn() };
   const dataSource = { transaction: jest.fn() };
   const reloj = { ahora: jest.fn() };
+  const eventos = { emitir: jest.fn() };
 
   beforeEach(async () => {
     jest.resetAllMocks();
@@ -62,11 +64,13 @@ describe('AtencionService', () => {
     );
     repositorio.save.mockImplementation((c: Cita) => Promise.resolve(c));
     reloj.ahora.mockReturnValue(horaDelLunes(9));
+    eventos.emitir.mockResolvedValue(undefined);
     const modulo = await Test.createTestingModule({
       providers: [
         AtencionService,
         { provide: DataSource, useValue: dataSource },
         { provide: Reloj, useValue: reloj },
+        { provide: EventosAgenda, useValue: eventos },
       ],
     }).compile();
     servicio = modulo.get(AtencionService);
@@ -272,6 +276,51 @@ describe('AtencionService', () => {
         expect(repositorio.query.mock.invocationCallOrder[0]).toBeLessThan(
           repositorio.findOneBy.mock.invocationCallOrder[0],
         );
+      },
+    );
+  });
+
+  describe('eventos de la agenda', () => {
+    it.each([
+      ['iniciar', 'atencion_iniciada'],
+      ['finalizar', 'atencion_finalizada'],
+    ] as const)('%s avisa a la agenda con el día de la cita', async (accion, tipo) => {
+      repositorio.findOneBy.mockResolvedValue(accion === 'iniciar' ? cita() : enAtencion());
+
+      await servicio[accion](5, { hora: '09:30' });
+
+      expect(eventos.emitir).toHaveBeenCalledTimes(1);
+      expect(eventos.emitir).toHaveBeenCalledWith({ tipo, fecha: LUNES });
+    });
+
+    it('avisa después de confirmar la transacción, no dentro de ella', async () => {
+      const orden: string[] = [];
+      dataSource.transaction.mockImplementation(
+        async (accion: (m: typeof repositorio) => Promise<unknown>) => {
+          const resultado = await accion(repositorio);
+          orden.push('commit');
+          return resultado;
+        },
+      );
+      eventos.emitir.mockImplementation(() => {
+        orden.push('evento');
+        return Promise.resolve();
+      });
+      repositorio.findOneBy.mockResolvedValue(cita());
+
+      await servicio.iniciar(5, { hora: '09:02' });
+
+      expect(orden).toEqual(['commit', 'evento']);
+    });
+
+    it.each(['iniciar', 'finalizar'] as const)(
+      '%s no avisa si la operación falla',
+      async (accion) => {
+        repositorio.findOneBy.mockResolvedValue(null);
+
+        await capturar(servicio[accion](5, { hora: '09:30' }));
+
+        expect(eventos.emitir).not.toHaveBeenCalled();
       },
     );
   });
