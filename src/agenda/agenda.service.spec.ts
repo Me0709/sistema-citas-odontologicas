@@ -187,6 +187,73 @@ describe('AgendaService', () => {
       },
     );
 
+    describe('aviso de retraso del paciente', () => {
+      beforeEach(() => {
+        reloj.ahora.mockReturnValue(horaDelLunes(9, 0));
+      });
+
+      it('la cita se estima a la hora en que el paciente dijo que llegaría y las siguientes esperan', async () => {
+        repositorio.find.mockResolvedValue([cita('09:00', { avisoRetrasoMin: 20 }), cita('09:30')]);
+
+        const { citas } = await servicio.obtener(LUNES);
+
+        expect(citas[0]).toMatchObject({ horaEstimada: '09:20', cambioMin: 20 });
+        expect(citas[1]).toMatchObject({ horaEstimada: '09:50', cambioMin: 20 });
+      });
+
+      it('el cambio se mide contra la hora programada original', async () => {
+        reloj.ahora.mockReturnValue(horaDelLunes(8, 0));
+        repositorio.find.mockResolvedValue([cita('10:00', { avisoRetrasoMin: 15 })]);
+
+        const { citas } = await servicio.obtener(LUNES);
+
+        expect(citas[0]).toMatchObject({ horaEstimada: '10:15', cambioMin: 15 });
+      });
+
+      it.each([Flexibilidad.AMBAS, Flexibilidad.PUEDE_ADELANTAR])(
+        'no se adelanta a antes de la llegada avisada aunque pueda adelantar (%s)',
+        async (valor) => {
+          reloj.ahora.mockReturnValue(horaDelLunes(9, 30));
+          repositorio.find.mockResolvedValue([cita('10:00', { avisoRetrasoMin: 20 })]);
+          flexibilidad.porCitas.mockResolvedValue(new Map([[1, valor]]));
+
+          const { citas } = await servicio.obtener(LUNES);
+
+          expect(citas[0]).toMatchObject({ horaEstimada: '10:20', cambioMin: 20 });
+        },
+      );
+
+      it('sin aviso, quien puede adelantar sigue adelantándose', async () => {
+        reloj.ahora.mockReturnValue(horaDelLunes(9, 30));
+        repositorio.find.mockResolvedValue([cita('10:00', { avisoRetrasoMin: null })]);
+        flexibilidad.porCitas.mockResolvedValue(new Map([[1, Flexibilidad.AMBAS]]));
+
+        const { citas } = await servicio.obtener(LUNES);
+
+        expect(citas[0]).toMatchObject({ horaEstimada: '09:30', cambioMin: -30 });
+      });
+
+      it('se ignora si el paciente ya llegó: ya está en sala', async () => {
+        reloj.ahora.mockReturnValue(horaDelLunes(9, 5));
+        repositorio.find.mockResolvedValue([
+          cita('09:00', { estado: EstadoCita.EN_SALA, avisoRetrasoMin: 20 }),
+        ]);
+
+        const { citas } = await servicio.obtener(LUNES);
+
+        expect(citas[0]).toMatchObject({ horaEstimada: '09:05', cambioMin: 5 });
+      });
+
+      it('otro día no cuenta: la cita conserva su hora', async () => {
+        reloj.ahora.mockReturnValue(new Date(Date.UTC(2026, 10, 22, 20, 0)));
+        repositorio.find.mockResolvedValue([cita('09:00', { avisoRetrasoMin: 20 })]);
+
+        const { citas } = await servicio.obtener(LUNES);
+
+        expect(citas[0]).toMatchObject({ horaEstimada: '09:00', cambioMin: 0 });
+      });
+    });
+
     it('otro día no se recalcula: cada cita conserva su hora', async () => {
       reloj.ahora.mockReturnValue(new Date(Date.UTC(2026, 10, 22, 20, 0)));
       repositorio.find.mockResolvedValue([cita('09:00'), cita('09:30')]);
