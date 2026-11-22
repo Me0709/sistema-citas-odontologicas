@@ -7,6 +7,7 @@ import { PacientesModule } from './pacientes/pacientes.module';
 import { ProcedimientosModule } from './procedimientos/procedimientos.module';
 import { SaludController } from './salud/salud.controller';
 import { CitasModule } from './citas/citas.module';
+import { FlexibilidadModule } from './flexibilidad/flexibilidad.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { CitasModule } from './citas/citas.module';
     PacientesModule,
     DisponibilidadModule,
     CitasModule,
+    FlexibilidadModule,
   ],
   controllers: [SaludController],
   providers: [

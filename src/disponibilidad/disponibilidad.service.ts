@@ -1,15 +1,26 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import { BLOQUE_MINIMO_MIN, MAX_DIAS_CONSULTA_ESPACIOS } from '../comun/constantes';
+import { DataSource, In, Repository } from 'typeorm';
+import { Cita } from '../citas/cita.entity';
+import { EstadoCita } from '../citas/estado-cita';
 import {
+  BLOQUE_MINIMO_MIN,
+  LLAVE_BLOQUEO_AGENDA,
+  MAX_DIAS_CONSULTA_ESPACIOS,
+  OFFSET_CONSULTORIO_MIN,
+} from '../comun/constantes';
+import { Reloj } from '../comun/reloj';
+import {
+  aInstanteLocal,
   diaIso,
   diasEntre,
+  esPosteriorA,
   fechaValida,
   horaAMinutos,
   minutosAHora,
   sumarDias,
 } from '../comun/tiempo';
+import { cabeEnHorario } from './cabe-en-horario';
 import { DefinirDisponibilidadDto, FranjaDto } from './dto/definir-disponibilidad.dto';
 import { FranjaHoraria } from './franja-horaria.entity';
 
@@ -19,10 +30,25 @@ export interface EspacioAgenda {
   fin: string;
 }
 
+export interface CitaAfectada {
+  id: number;
+  pacienteId: number;
+  procedimientoId: number;
+  fecha: string;
+  horaInicio: string;
+  horaFin: string;
+  estadoAnterior: EstadoCita;
+  estado: EstadoCita;
+}
+
 export interface DisponibilidadRespuesta {
   franjas: FranjaHoraria[];
   espaciosPorSemana: number;
+  citasAfectadas: CitaAfectada[];
 }
+
+/** Citas pendientes que un cambio de horario puede dejar sin espacio. */
+const ESTADOS_AFECTABLES: EstadoCita[] = [EstadoCita.PROGRAMADA, EstadoCita.CONFIRMADA];
 
 @Injectable()
 export class DisponibilidadService {
@@ -30,15 +56,21 @@ export class DisponibilidadService {
     @InjectRepository(FranjaHoraria)
     private readonly repositorio: Repository<FranjaHoraria>,
     private readonly dataSource: DataSource,
+    private readonly reloj: Reloj,
   ) {}
 
   async definir(dto: DefinirDisponibilidadDto): Promise<DisponibilidadRespuesta> {
     this.validarFormato(dto.franjas);
     this.validarConflictos(dto.franjas);
 
-    const guardadas = await this.dataSource.transaction(async (manager) => {
+    const ahora = aInstanteLocal(this.reloj.ahora(), OFFSET_CONSULTORIO_MIN);
+
+    const { guardadas, citasAfectadas } = await this.dataSource.transaction(async (manager) => {
+      // Misma llave que usa la programación de citas: no se crean citas mientras cambia el horario.
+      await manager.query('SELECT pg_advisory_xact_lock($1)', [LLAVE_BLOQUEO_AGENDA]);
       await manager.query('DELETE FROM franjas_horarias');
-      return manager.save(
+
+      const guardadas = await manager.save(
         FranjaHoraria,
         dto.franjas.map((f) => ({
           diaSemana: f.diaSemana,
@@ -46,10 +78,41 @@ export class DisponibilidadService {
           horaFin: f.horaFin,
         })),
       );
+
+      // Solo las citas futuras se ven afectadas: las de días anteriores o que ya empezaron no se tocan.
+      const pendientes = await manager.find(Cita, { where: { estado: In(ESTADOS_AFECTABLES) } });
+      const afectadas = pendientes.filter(
+        (c) =>
+          esPosteriorA(c.fecha, c.horaInicio, ahora) &&
+          !cabeEnHorario(guardadas, c.fecha, horaAMinutos(c.horaInicio), horaAMinutos(c.horaFin)),
+      );
+
+      const resumen: CitaAfectada[] = afectadas.map((c) => ({
+        id: c.id,
+        pacienteId: c.pacienteId,
+        procedimientoId: c.procedimientoId,
+        fecha: c.fecha,
+        horaInicio: c.horaInicio,
+        horaFin: c.horaFin,
+        estadoAnterior: c.estado,
+        estado: EstadoCita.POR_REPROGRAMAR,
+      }));
+
+      if (afectadas.length > 0) {
+        afectadas.forEach((c) => {
+          c.estado = EstadoCita.POR_REPROGRAMAR;
+        });
+        await manager.save(Cita, afectadas);
+      }
+
+      resumen.sort(
+        (a, b) => a.fecha.localeCompare(b.fecha) || a.horaInicio.localeCompare(b.horaInicio),
+      );
+      return { guardadas, citasAfectadas: resumen };
     });
 
     const franjas = this.ordenar(guardadas);
-    return { franjas, espaciosPorSemana: this.contarEspaciosPorSemana(franjas) };
+    return { franjas, espaciosPorSemana: this.contarEspaciosPorSemana(franjas), citasAfectadas };
   }
 
   listar(): Promise<FranjaHoraria[]> {
