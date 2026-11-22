@@ -1,5 +1,6 @@
 import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_PIPE } from '@nestjs/core';
+import { AgendaModule } from './agenda/agenda.module';
 import { BaseDeDatosModule } from './base-de-datos/base-de-datos.module';
 import { ComunModule } from './comun/comun.module';
 import { DisponibilidadModule } from './disponibilidad/disponibilidad.module';
@@ -21,6 +22,7 @@ import { FlexibilidadModule } from './flexibilidad/flexibilidad.module';
     CitasModule,
     ReprogramacionModule,
     FlexibilidadModule,
+    AgendaModule,
     EstimacionModule,
   ],
   controllers: [SaludController],
