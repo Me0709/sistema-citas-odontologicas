@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { LLAVE_BLOQUEO_AGENDA } from '../comun/constantes';
 import { EventosAgenda } from '../comun/eventos-agenda';
 import { Reloj } from '../comun/reloj';
+import { Notificacion } from '../estimacion/notificacion.entity';
 import { Cita } from './cita.entity';
 import { EstadoCita } from './estado-cita';
 import { IncidenciasService } from './incidencias.service';
@@ -403,6 +404,48 @@ describe('IncidenciasService', () => {
       await servicio.avisarRetraso(5, { minutos: 10 });
 
       expect(eventos.emitir).toHaveBeenCalledWith({ tipo: 'aviso_retraso', fecha: LUNES });
+    });
+  });
+
+  describe('notificación de la cancelación del consultorio (Escenario 3)', () => {
+    const notificacionesGuardadas = () =>
+      repositorio.save.mock.calls
+        .filter(([objetivo]) => objetivo === Notificacion)
+        .map(([, datos]) => datos as Record<string, unknown>);
+
+    it('avisa al paciente, con el motivo y la opción de reprogramar', async () => {
+      repositorio.findOneBy.mockResolvedValue(cita({ estado: EstadoCita.PROGRAMADA }));
+
+      await servicio.cancelar(5, { origen: OrigenCancelacion.CONSULTORIO, motivo: 'Emergencia' });
+
+      expect(notificacionesGuardadas()).toEqual([
+        expect.objectContaining({
+          destinatario: 'paciente',
+          pacienteId: 7,
+          citaId: 5,
+          tipo: 'cita_cancelada',
+          mensaje: expect.stringContaining('Emergencia'),
+        }),
+      ]);
+      expect(notificacionesGuardadas()[0].mensaje).toEqual(expect.stringContaining('reprogramar'));
+    });
+
+    it('si cancela el paciente no se genera ninguna notificación', async () => {
+      repositorio.findOneBy.mockResolvedValue(cita({ estado: EstadoCita.PROGRAMADA }));
+
+      await servicio.cancelar(5, { origen: OrigenCancelacion.PACIENTE });
+
+      expect(notificacionesGuardadas()).toEqual([]);
+    });
+
+    it('si la cancelación se rechaza, tampoco se notifica', async () => {
+      repositorio.findOneBy.mockResolvedValue(cita({ estado: EstadoCita.ATENDIDA }));
+
+      await capturar(
+        servicio.cancelar(5, { origen: OrigenCancelacion.CONSULTORIO, motivo: 'Emergencia' }),
+      );
+
+      expect(notificacionesGuardadas()).toEqual([]);
     });
   });
 });

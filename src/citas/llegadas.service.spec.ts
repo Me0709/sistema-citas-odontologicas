@@ -2,6 +2,7 @@ import { ConflictException, HttpException, NotFoundException } from '@nestjs/com
 import { Test } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 import { LLAVE_BLOQUEO_AGENDA } from '../comun/constantes';
+import { EventosAgenda } from '../comun/eventos-agenda';
 import { Reloj } from '../comun/reloj';
 import { Cita } from './cita.entity';
 import { EstadoCita } from './estado-cita';
@@ -46,17 +47,20 @@ describe('LlegadasService', () => {
     ),
   };
   const reloj = { ahora: jest.fn() };
+  const eventos = { emitir: jest.fn() };
 
   beforeEach(async () => {
     jest.resetAllMocks();
     dataSource.transaction.mockImplementation((accion) => accion(repositorio));
     repositorio.save.mockImplementation((c: Cita) => Promise.resolve(c));
     reloj.ahora.mockReturnValue(horaDelLunes(9));
+    eventos.emitir.mockResolvedValue(undefined);
     const modulo = await Test.createTestingModule({
       providers: [
         LlegadasService,
         { provide: DataSource, useValue: dataSource },
         { provide: Reloj, useValue: reloj },
+        { provide: EventosAgenda, useValue: eventos },
       ],
     }).compile();
     servicio = modulo.get(LlegadasService);
@@ -229,6 +233,46 @@ describe('LlegadasService', () => {
       await servicio.registrar(5, { horaLlegada: '09:00' });
 
       expect(repositorio.findOneBy).toHaveBeenCalledWith(Cita, { id: 5 });
+    });
+  });
+
+  describe('aviso a la agenda (recálculo de horas estimadas, HU-09)', () => {
+    it.each(['09:00', '09:10', '08:50'])(
+      'avisa a la agenda del día de la cita al registrar la llegada a las %s',
+      async (hora) => {
+        repositorio.findOneBy.mockResolvedValue(cita());
+
+        await servicio.registrar(5, { horaLlegada: hora });
+
+        expect(eventos.emitir).toHaveBeenCalledTimes(1);
+        expect(eventos.emitir).toHaveBeenCalledWith({ tipo: 'llegada_registrada', fecha: LUNES });
+      },
+    );
+
+    it('avisa después de confirmar la transacción, no dentro de ella', async () => {
+      const orden: string[] = [];
+      dataSource.transaction.mockImplementation(async (accion) => {
+        const resultado = await accion(repositorio);
+        orden.push('commit');
+        return resultado;
+      });
+      eventos.emitir.mockImplementation(() => {
+        orden.push('evento');
+        return Promise.resolve();
+      });
+      repositorio.findOneBy.mockResolvedValue(cita());
+
+      await servicio.registrar(5, { horaLlegada: '09:00' });
+
+      expect(orden).toEqual(['commit', 'evento']);
+    });
+
+    it('no avisa si la llegada no se pudo registrar', async () => {
+      repositorio.findOneBy.mockResolvedValue(null);
+
+      await capturar(servicio.registrar(5, { horaLlegada: '09:00' }));
+
+      expect(eventos.emitir).not.toHaveBeenCalled();
     });
   });
 });

@@ -9,8 +9,11 @@ import { DataSource } from 'typeorm';
 import { Cita } from '../citas/cita.entity';
 import { EstadoCita } from '../citas/estado-cita';
 import { LLAVE_BLOQUEO_AGENDA } from '../comun/constantes';
+import { EventosAgenda } from '../comun/eventos-agenda';
 import { Reloj } from '../comun/reloj';
 import { FranjaHoraria } from '../disponibilidad/franja-horaria.entity';
+import { EstimacionCita } from '../estimacion/estimacion-cita.entity';
+import { Notificacion } from '../estimacion/notificacion.entity';
 import { EstadoPropuesta, OrigenRespuesta } from './estado-propuesta';
 import { PropuestaReprogramacion } from './propuesta-reprogramacion.entity';
 import { ReprogramacionService } from './reprogramacion.service';
@@ -75,9 +78,11 @@ describe('ReprogramacionService', () => {
     findOneBy: jest.fn(),
     create: jest.fn(),
     save: jest.fn(),
+    delete: jest.fn(),
   };
   const dataSource = { transaction: jest.fn(), manager };
   const reloj = { ahora: jest.fn() };
+  const eventos = { emitir: jest.fn() };
 
   /** Configura lo que ve la base de datos: la cita, la propuesta pendiente y las otras citas del día. */
   const escenario = (
@@ -110,11 +115,13 @@ describe('ReprogramacionService', () => {
     manager.create.mockImplementation((_e: unknown, datos: object) => ({ ...datos }));
     manager.save.mockImplementation((entidad: unknown) => Promise.resolve(entidad));
     reloj.ahora.mockReturnValue(INICIO);
+    eventos.emitir.mockResolvedValue(undefined);
     const modulo = await Test.createTestingModule({
       providers: [
         ReprogramacionService,
         { provide: DataSource, useValue: dataSource },
         { provide: Reloj, useValue: reloj },
+        { provide: EventosAgenda, useValue: eventos },
       ],
     }).compile();
     servicio = modulo.get(ReprogramacionService);
@@ -484,6 +491,136 @@ describe('ReprogramacionService', () => {
 
       expect(laCita.estado).toBe(EstadoCita.CANCELADA);
       expect(laPropuesta.estado).toBe(EstadoPropuesta.VENCIDA);
+    });
+  });
+
+  describe('integración con la agenda del día y con las notificaciones', () => {
+    const guardadas = (entidad: unknown) =>
+      manager.save.mock.calls
+        .filter(([objetivo]) => objetivo === entidad)
+        .map(([, datos]) => datos as Record<string, unknown>);
+
+    describe('aceptar', () => {
+      it('avisa a la agenda de hoy para recalcular las horas estimadas', async () => {
+        escenario({ cita: cita({ estado: EstadoCita.POR_REPROGRAMAR }) });
+
+        await servicio.aceptar(11, {});
+
+        expect(eventos.emitir).toHaveBeenCalledTimes(1);
+        expect(eventos.emitir).toHaveBeenCalledWith({ tipo: 'propuesta_aceptada', fecha: LUNES });
+      });
+
+      it('borra la estimación de la cita, que cambió de horario', async () => {
+        escenario({ cita: cita({ estado: EstadoCita.POR_REPROGRAMAR }) });
+
+        await servicio.aceptar(11, {});
+
+        expect(manager.delete).toHaveBeenCalledWith(EstimacionCita, { citaId: 5 });
+      });
+
+      it('si la cita pasa a otro día, solo avisa a la agenda de hoy', async () => {
+        escenario({
+          cita: cita({ estado: EstadoCita.POR_REPROGRAMAR }),
+          propuesta: propuesta({ fecha: '2026-11-24' }),
+          franjas: [
+            ...JORNADA,
+            { diaSemana: 2, horaInicio: '08:00', horaFin: '12:00' } as FranjaHoraria,
+          ],
+        });
+
+        await servicio.aceptar(11, {});
+
+        expect(eventos.emitir).toHaveBeenCalledTimes(1);
+        expect(eventos.emitir).toHaveBeenCalledWith({ tipo: 'propuesta_aceptada', fecha: LUNES });
+      });
+
+      it('si la cita no es de hoy, no avisa a la agenda', async () => {
+        reloj.ahora.mockReturnValue(new Date('2026-11-20T13:00:00Z'));
+        escenario({
+          cita: cita({ estado: EstadoCita.POR_REPROGRAMAR }),
+          propuesta: propuesta({ venceEn: new Date('2026-11-20T14:00:00Z') }),
+        });
+
+        await servicio.aceptar(11, {});
+
+        expect(eventos.emitir).not.toHaveBeenCalled();
+      });
+
+      it('no avisa si la aceptación falla', async () => {
+        escenario({ propuesta: null });
+
+        await capturar(servicio.aceptar(99, {}));
+
+        expect(eventos.emitir).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('rechazar', () => {
+      it('registra una alerta para el administrador', async () => {
+        escenario({ cita: cita({ estado: EstadoCita.POR_REPROGRAMAR }) });
+
+        await servicio.rechazar(11);
+
+        expect(guardadas(Notificacion)).toEqual([
+          expect.objectContaining({
+            destinatario: 'administrador',
+            pacienteId: 7,
+            citaId: 5,
+            tipo: 'propuesta_rechazada',
+            mensaje: expect.stringContaining('11'),
+          }),
+        ]);
+      });
+
+      it('avisa a la agenda de hoy: la cita volvió a su estado anterior', async () => {
+        escenario({ cita: cita({ estado: EstadoCita.POR_REPROGRAMAR }) });
+
+        await servicio.rechazar(11);
+
+        expect(eventos.emitir).toHaveBeenCalledWith({ tipo: 'propuesta_rechazada', fecha: LUNES });
+      });
+
+      it('si el plazo ya venció, la alerta es de propuesta vencida', async () => {
+        escenario({ cita: cita({ estado: EstadoCita.POR_REPROGRAMAR }) });
+        reloj.ahora.mockReturnValue(enMinutos(20));
+
+        await capturar(servicio.rechazar(11));
+
+        expect(guardadas(Notificacion).map((n) => n.tipo)).toEqual(['propuesta_vencida']);
+      });
+    });
+
+    describe('vencer', () => {
+      it('registra una alerta por cada propuesta vencida y avisa una vez a la agenda de hoy', async () => {
+        const citaA = cita({ id: 5, estado: EstadoCita.POR_REPROGRAMAR });
+        const citaB = cita({ id: 6, pacienteId: 8, estado: EstadoCita.POR_REPROGRAMAR });
+        manager.find.mockImplementation((entidad: unknown) =>
+          Promise.resolve(
+            entidad === Cita
+              ? [citaA, citaB]
+              : [propuesta({ id: 11, citaId: 5 }), propuesta({ id: 12, citaId: 6 })],
+          ),
+        );
+        reloj.ahora.mockReturnValue(enMinutos(16));
+
+        await servicio.vencer();
+
+        expect(guardadas(Notificacion)).toEqual([
+          expect.objectContaining({ tipo: 'propuesta_vencida', citaId: 5, pacienteId: 7 }),
+          expect.objectContaining({ tipo: 'propuesta_vencida', citaId: 6, pacienteId: 8 }),
+        ]);
+        expect(eventos.emitir).toHaveBeenCalledTimes(1);
+        expect(eventos.emitir).toHaveBeenCalledWith({ tipo: 'propuesta_vencida', fecha: LUNES });
+      });
+
+      it('sin propuestas vencidas no avisa a nadie', async () => {
+        manager.find.mockResolvedValue([]);
+
+        await servicio.vencer();
+
+        expect(guardadas(Notificacion)).toEqual([]);
+        expect(eventos.emitir).not.toHaveBeenCalled();
+      });
     });
   });
 });
