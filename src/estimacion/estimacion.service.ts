@@ -17,12 +17,27 @@ import { Notificacion } from './notificacion.entity';
 
 const MS_POR_MINUTO = 60_000;
 
-/** Citas que aún no comienzan: su hora de inicio todavía puede cambiar. */
+/**
+ * Citas que aún no comienzan: su hora de inicio todavía puede cambiar. "Por reprogramar" sigue
+ * ocupando su espacio hasta que se confirme el nuevo horario, así que cuenta en la secuencia.
+ */
 const ESTADOS_PENDIENTES: EstadoCita[] = [
   EstadoCita.PROGRAMADA,
   EstadoCita.CONFIRMADA,
+  EstadoCita.POR_REPROGRAMAR,
   EstadoCita.EN_SALA,
 ];
+
+/** Citas que cuentan en el cálculo pero a cuyo paciente no se le avisa ni se alerta al administrador. */
+const ESTADOS_SIN_AVISOS: EstadoCita[] = [EstadoCita.EN_SALA, EstadoCita.POR_REPROGRAMAR];
+
+/** Quien avisó que llega tarde no puede adelantarse a antes de su llegada. */
+const sinAdelanto = (flexibilidad: Flexibilidad): Flexibilidad =>
+  flexibilidad === Flexibilidad.AMBAS
+    ? Flexibilidad.PUEDE_ATRASAR
+    : flexibilidad === Flexibilidad.PUEDE_ADELANTAR
+      ? Flexibilidad.MANTENER
+      : flexibilidad;
 
 export interface HoraEstimadaDeCita {
   citaId: number;
@@ -61,6 +76,12 @@ export class EstimacionService implements OnModuleInit {
 
       const delDia = await manager.find(Cita, { where: { fecha } });
       const pendientes = delDia.filter((c) => ESTADOS_PENDIENTES.includes(c.estado));
+
+      // Una cita que ya no está pendiente (cancelada, atendida, en atención...) no tiene hora estimada.
+      const yaNoPendientes = delDia.filter((c) => !ESTADOS_PENDIENTES.includes(c.estado));
+      if (yaNoPendientes.length > 0) {
+        await manager.delete(EstimacionCita, { citaId: In(yaNoPendientes.map((c) => c.id)) });
+      }
       if (pendientes.length === 0) {
         return;
       }
@@ -85,12 +106,18 @@ export class EstimacionService implements OnModuleInit {
       const inicioDelDia = Date.parse(`${fecha}T00:00:00Z`);
       const aInstante = (minutos: number) => new Date(inicioDelDia + minutos * MS_POR_MINUTO);
 
+      // Quien avisó que llegará tarde no puede empezar antes de su llegada; el que ya está en sala, sí.
+      const retrasoAvisado = (c: Cita): number =>
+        c.estado === EstadoCita.EN_SALA ? 0 : (c.avisoRetrasoMin ?? 0);
+      const flexibilidadDe = (c: Cita): Flexibilidad =>
+        flexibilidades.get(c.id) ?? Flexibilidad.MANTENER;
+
       const estimadas = recalcularHorasEstimadas(
         pendientes.map((c) => ({
           citaId: c.id,
-          inicioPrevisto: aInstante(horaAMinutos(c.horaInicio)),
+          inicioPrevisto: aInstante(horaAMinutos(c.horaInicio) + retrasoAvisado(c)),
           duracionMin: c.duracionMin,
-          flexibilidad: flexibilidades.get(c.id) ?? Flexibilidad.MANTENER,
+          flexibilidad: retrasoAvisado(c) > 0 ? sinAdelanto(flexibilidadDe(c)) : flexibilidadDe(c),
         })),
         aInstante(this.odontologoLibreDesde(delDia, ahora.minutos)),
       );
@@ -102,16 +129,19 @@ export class EstimacionService implements OnModuleInit {
         const cita = pendientes.find((c) => c.id === estimada.citaId)!;
         const previa = previas.get(cita.id);
         const paciente = pacientes.get(cita.pacienteId);
-        const yaEnSala = cita.estado === EstadoCita.EN_SALA;
+        const sinAvisos = ESTADOS_SIN_AVISOS.includes(cita.estado);
 
         const nuevoMin = (estimada.inicioEstimado.getTime() - inicioDelDia) / MS_POR_MINUTO;
         const nuevo = minutosAHora(nuevoMin);
+        // El cambio se mide contra la hora programada original, no contra la llegada avisada.
+        const cambioMin = nuevoMin - horaAMinutos(cita.horaInicio);
 
         // Se compara con lo último que se le dijo al paciente, para no repetir avisos casi iguales.
         const referenciaMin = horaAMinutos(previa?.inicioNotificado ?? cita.horaInicio);
         const avisarPaciente =
-          !yaEnSala && Math.abs(nuevoMin - referenciaMin) >= UMBRAL_NOTIFICACION_MIN;
-        const requiereAlternativas = !yaEnSala && estimada.requiereAlternativas;
+          !sinAvisos && Math.abs(nuevoMin - referenciaMin) >= UMBRAL_NOTIFICACION_MIN;
+        const requiereAlternativas =
+          !sinAvisos && cambioMin > 0 && flexibilidadDe(cita) === Flexibilidad.MANTENER;
 
         if (avisarPaciente) {
           const seRetrasa = nuevoMin > referenciaMin;
@@ -138,14 +168,14 @@ export class EstimacionService implements OnModuleInit {
             destino: 'administrador',
             mensaje:
               `La cita ${cita.id} (paciente ${cita.pacienteId}) debe mantener su horario de las ${cita.horaInicio} ` +
-              `y se retrasa a las ${nuevo} (${estimada.cambioMin} min). Evalúe alternativas de reprogramación.`,
+              `y se retrasa a las ${nuevo} (${cambioMin} min). Evalúe alternativas de reprogramación.`,
           });
         }
 
         filas.push({
           citaId: cita.id,
           inicioEstimado: nuevo,
-          cambioMin: estimada.cambioMin,
+          cambioMin,
           inicioNotificado: avisarPaciente ? nuevo : (previa?.inicioNotificado ?? null),
           requiereAlternativas,
         });
@@ -163,7 +193,10 @@ export class EstimacionService implements OnModuleInit {
     if (!cita) {
       throw new NotFoundException(`No existe la cita ${citaId}`);
     }
-    const estimacion = await this.estimaciones.findOneBy({ citaId });
+    // Una cita que ya no está pendiente no tiene hora estimada, aunque quede una estimación vieja.
+    const estimacion = ESTADOS_PENDIENTES.includes(cita.estado)
+      ? await this.estimaciones.findOneBy({ citaId })
+      : null;
 
     return {
       citaId,
