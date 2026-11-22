@@ -16,6 +16,8 @@ export interface EventoDisruptivo {
 export interface OpcionesReprogramacion {
   /** Hora límite de la jornada: ninguna cita puede terminar después. */
   finJornada?: Date;
+  /** Criterio propio sobre el horario en que puede atenderse una cita (por ejemplo, una pausa). */
+  esHorarioValido?: (inicio: Date, fin: Date) => boolean;
 }
 
 export interface Asignacion {
@@ -121,6 +123,15 @@ function crearAlternativa(asignaciones: Asignacion[]): Alternativa {
   };
 }
 
+/** Indica si atender entre esos dos instantes respeta la jornada y el criterio de horario válido. */
+function cabeEnElHorario(opciones: OpcionesReprogramacion, inicio: number, fin: number): boolean {
+  const { finJornada, esHorarioValido } = opciones;
+  return (
+    (finJornada === undefined || fin <= finJornada.getTime()) &&
+    (esHorarioValido === undefined || esHorarioValido(new Date(inicio), new Date(fin)))
+  );
+}
+
 /**
  * Genera todas las formas válidas de atender las citas: cada orden posible y, para quien
  * puede adelantar, la opción de empezar antes de su hora prevista.
@@ -128,12 +139,11 @@ function crearAlternativa(asignaciones: Asignacion[]): Alternativa {
 function generarAlternativas(
   citas: readonly CitaPendiente[],
   libreDesde: Date,
-  finJornada?: Date,
+  opciones: OpcionesReprogramacion,
 ): Alternativa[] {
   const encontradas = new Map<string, Alternativa>();
   const usadas = citas.map(() => false);
   const asignaciones: Asignacion[] = [];
-  const limite = finJornada?.getTime();
 
   const recorrer = (cursor: number): void => {
     if (asignaciones.length === citas.length) {
@@ -150,7 +160,7 @@ function generarAlternativas(
 
       for (const inicio of inicios) {
         const fin = inicio + cita.duracionMin * MS_POR_MINUTO;
-        if (!respetaFlexibilidad(cita, inicio) || (limite !== undefined && fin > limite)) continue;
+        if (!respetaFlexibilidad(cita, inicio) || !cabeEnElHorario(opciones, inicio, fin)) continue;
         usadas[i] = true;
         asignaciones.push({
           citaId: cita.citaId,
@@ -172,7 +182,7 @@ function generarAlternativas(
 function citasQueNoSePuedenAcomodar(
   citas: readonly CitaPendiente[],
   libreDesde: Date,
-  finJornada?: Date,
+  opciones: OpcionesReprogramacion,
 ): CitaPendiente[] {
   const porId = new Map(citas.map((c) => [c.citaId, c]));
   return recalcularHorasEstimadas(citas, libreDesde)
@@ -180,10 +190,7 @@ function citasQueNoSePuedenAcomodar(
     .filter(({ cita, estimada }) => {
       const inicio = estimada.inicioEstimado.getTime();
       const fin = inicio + cita.duracionMin * MS_POR_MINUTO;
-      return (
-        !respetaFlexibilidad(cita, inicio) ||
-        (finJornada !== undefined && fin > finJornada.getTime())
-      );
+      return !respetaFlexibilidad(cita, inicio) || !cabeEnElHorario(opciones, inicio, fin);
     })
     .map(({ cita }) => cita);
 }
@@ -250,14 +257,12 @@ export function proponerAlternativas(
     );
   }
 
-  const alternativas = generarAlternativas(citas, libreDesde, opciones.finJornada).sort(
-    compararAlternativas,
-  );
+  const alternativas = generarAlternativas(citas, libreDesde, opciones).sort(compararAlternativas);
 
   if (alternativas.length === 0) {
     return {
       hayAlternativa: false,
-      citasEnConflicto: citasQueNoSePuedenAcomodar(citas, libreDesde, opciones.finJornada),
+      citasEnConflicto: citasQueNoSePuedenAcomodar(citas, libreDesde, opciones),
       motivo:
         'Ninguna combinación respeta las restricciones de los pacientes; ' +
         'el administrador debe decidir manualmente.',

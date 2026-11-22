@@ -7,6 +7,7 @@ import { DisponibilidadModule } from './disponibilidad/disponibilidad.module';
 import { PacientesModule } from './pacientes/pacientes.module';
 import { ProcedimientosModule } from './procedimientos/procedimientos.module';
 import { ReprogramacionModule } from './reprogramacion/reprogramacion.module';
+import { ReordenamientoModule } from './reordenamiento/reordenamiento.module';
 import { SaludController } from './salud/salud.controller';
 import { CitasModule } from './citas/citas.module';
 import { EstimacionModule } from './estimacion/estimacion.module';
@@ -24,6 +25,7 @@ import { FlexibilidadModule } from './flexibilidad/flexibilidad.module';
     FlexibilidadModule,
     AgendaModule,
     EstimacionModule,
+    ReordenamientoModule,
   ],
   controllers: [SaludController],
   providers: [

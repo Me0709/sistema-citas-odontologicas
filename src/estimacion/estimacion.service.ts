@@ -13,6 +13,7 @@ import { UMBRAL_NOTIFICACION_MIN } from '../reordenamiento/constantes';
 import { Flexibilidad } from '../reordenamiento/dominio/flexibilidad';
 import { recalcularHorasEstimadas } from '../reordenamiento/dominio/hora-estimada';
 import { EstimacionCita } from './estimacion-cita.entity';
+import { odontologoLibreDesde, retrasoAvisado, sinAdelanto } from './calculo-agenda';
 import { Notificacion } from './notificacion.entity';
 
 const MS_POR_MINUTO = 60_000;
@@ -30,14 +31,6 @@ const ESTADOS_PENDIENTES: EstadoCita[] = [
 
 /** Citas que cuentan en el cálculo pero a cuyo paciente no se le avisa ni se alerta al administrador. */
 const ESTADOS_SIN_AVISOS: EstadoCita[] = [EstadoCita.EN_SALA, EstadoCita.POR_REPROGRAMAR];
-
-/** Quien avisó que llega tarde no puede adelantarse a antes de su llegada. */
-const sinAdelanto = (flexibilidad: Flexibilidad): Flexibilidad =>
-  flexibilidad === Flexibilidad.AMBAS
-    ? Flexibilidad.PUEDE_ATRASAR
-    : flexibilidad === Flexibilidad.PUEDE_ADELANTAR
-      ? Flexibilidad.MANTENER
-      : flexibilidad;
 
 export interface HoraEstimadaDeCita {
   citaId: number;
@@ -107,8 +100,6 @@ export class EstimacionService implements OnModuleInit {
       const aInstante = (minutos: number) => new Date(inicioDelDia + minutos * MS_POR_MINUTO);
 
       // Quien avisó que llegará tarde no puede empezar antes de su llegada; el que ya está en sala, sí.
-      const retrasoAvisado = (c: Cita): number =>
-        c.estado === EstadoCita.EN_SALA ? 0 : (c.avisoRetrasoMin ?? 0);
       const flexibilidadDe = (c: Cita): Flexibilidad =>
         flexibilidades.get(c.id) ?? Flexibilidad.MANTENER;
 
@@ -119,7 +110,7 @@ export class EstimacionService implements OnModuleInit {
           duracionMin: c.duracionMin,
           flexibilidad: retrasoAvisado(c) > 0 ? sinAdelanto(flexibilidadDe(c)) : flexibilidadDe(c),
         })),
-        aInstante(this.odontologoLibreDesde(delDia, ahora.minutos)),
+        aInstante(odontologoLibreDesde(delDia, ahora.minutos)),
       );
 
       const filas: Partial<EstimacionCita>[] = [];
@@ -206,20 +197,5 @@ export class EstimacionService implements OnModuleInit {
       cambioMin: estimacion?.cambioMin ?? 0,
       requiereAlternativas: estimacion?.requiereAlternativas ?? false,
     };
-  }
-
-  /**
-   * Minuto del día desde el que el odontólogo puede atender a la siguiente cita: cuando termine
-   * la que está en curso (o termine la última atendida) y nunca antes de ahora.
-   */
-  private odontologoLibreDesde(citasDelDia: Cita[], ahoraMin: number): number {
-    const enAtencion = citasDelDia.filter((c) => c.estado === EstadoCita.EN_ATENCION);
-    const terminaLaActual = enAtencion.map((c) => horaAMinutos(c.horaInicioReal!) + c.duracionMin);
-    const terminaronAntes = citasDelDia
-      .filter((c) => c.estado === EstadoCita.ATENDIDA && c.horaFinReal)
-      .map((c) => horaAMinutos(c.horaFinReal!));
-
-    const liberacion = enAtencion.length > 0 ? terminaLaActual : terminaronAntes;
-    return Math.max(ahoraMin, ...liberacion);
   }
 }

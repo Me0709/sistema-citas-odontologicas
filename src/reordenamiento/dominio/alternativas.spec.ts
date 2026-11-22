@@ -204,6 +204,64 @@ describe('proponerAlternativas', () => {
       expect(resultado.otras).toEqual([]);
     });
 
+    describe('con un criterio propio de horario válido (por ejemplo, una pausa al mediodía)', () => {
+      // Atención de 10:00 a 11:00 y de 12:00 en adelante.
+      const fueraDeLaPausa = (inicio: Date, fin: Date): boolean =>
+        fin <= hora('11:00') || inicio >= hora('12:00');
+
+      it('descarta las alternativas que dejan una cita dentro de la pausa', () => {
+        const citas = [
+          cita(1, '10:00', 30, Flexibilidad.AMBAS),
+          cita(2, '10:30', 15, Flexibilidad.PUEDE_ATRASAR),
+        ];
+        const duracion: Record<number, number> = { 1: 30, 2: 15 };
+
+        const sinCriterio = conAlternativa(proponerAlternativas(citas, hora('10:15'), retraso));
+        const resultado = conAlternativa(
+          proponerAlternativas(citas, hora('10:15'), retraso, { esHorarioValido: fueraDeLaPausa }),
+        );
+
+        // Atender primero a la cita 2 dejaría a la 1 hasta las 11:15, dentro de la pausa.
+        expect(sinCriterio.otras).toHaveLength(1);
+        expect(resultado.otras).toHaveLength(0);
+        for (const asignacion of resultado.propuesta.asignaciones) {
+          const fin = new Date(
+            asignacion.inicioPropuesto.getTime() + duracion[asignacion.citaId] * 60_000,
+          );
+          expect(fueraDeLaPausa(asignacion.inicioPropuesto, fin)).toBe(true);
+        }
+      });
+
+      it('informa que no hay alternativa si todas caen en la pausa', () => {
+        const citas = [cita(1, '10:30', 30, Flexibilidad.PUEDE_ATRASAR)];
+
+        const resultado = proponerAlternativas(citas, hora('10:50'), retraso, {
+          esHorarioValido: fueraDeLaPausa,
+        });
+
+        expect(resultado.hayAlternativa).toBe(false);
+      });
+
+      it('señala como en conflicto a la cita que el recálculo deja en la pausa', () => {
+        const citas = [cita(1, '10:30', 30, Flexibilidad.PUEDE_ATRASAR)];
+
+        const resultado = proponerAlternativas(citas, hora('10:50'), retraso, {
+          esHorarioValido: fueraDeLaPausa,
+        });
+
+        expect(resultado.hayAlternativa).toBe(false);
+        if (!resultado.hayAlternativa) {
+          expect(resultado.citasEnConflicto.map((c) => c.citaId)).toEqual([1]);
+        }
+      });
+
+      it('sin el criterio, esas mismas alternativas sí existen', () => {
+        const citas = [cita(1, '10:30', 30, Flexibilidad.PUEDE_ATRASAR)];
+
+        expect(proponerAlternativas(citas, hora('10:50'), retraso).hayAlternativa).toBe(true);
+      });
+    });
+
     it('informa que no hay alternativa si la jornada no alcanza', () => {
       const citas = [cita(1, '10:00', 30, Flexibilidad.PUEDE_ATRASAR)];
 
