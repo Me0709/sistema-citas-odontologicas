@@ -43,7 +43,7 @@ export class CitasService {
   ) {}
 
   async crear(dto: CrearCitaDto): Promise<Cita> {
-    await this.pacientes.obtener(dto.pacienteId);
+    await this.pacientes.existe(dto.pacienteId);
     const procedimiento = await this.procedimientos.obtener(dto.procedimientoId);
     if (!procedimiento.activo) {
       throw new BadRequestException('El procedimiento está desactivado y no se puede agendar');

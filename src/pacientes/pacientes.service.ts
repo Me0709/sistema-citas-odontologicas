@@ -92,6 +92,13 @@ export class PacientesService {
     return { ...paciente, historialCitas: citas.map(aHistorial) };
   }
 
+  async existe(id: number): Promise<void> {
+    const existe = await this.repositorio.existsBy({ id });
+    if (!existe) {
+      throw new NotFoundException(`No existe el paciente ${id}`);
+    }
+  }
+
   private errorDocumentoDuplicado(documento: string): ConflictException {
     return new ConflictException(
       `El paciente ya existe: hay un registro con el documento ${documento}`,
