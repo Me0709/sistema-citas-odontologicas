@@ -1,0 +1,78 @@
+import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
+import { Paciente } from '../pacientes/paciente.entity';
+import { Procedimiento } from '../procedimientos/procedimiento.entity';
+import { EstadoCita } from './estado-cita';
+import { OrigenCancelacion } from './origen-cancelacion';
+
+@Entity('citas')
+@Index(['fecha'])
+export class Cita {
+  @PrimaryGeneratedColumn()
+  id!: number;
+
+  @ManyToOne(() => Paciente, { nullable: false })
+  @JoinColumn({ name: 'paciente_id' })
+  paciente?: Paciente;
+
+  @Column({ name: 'paciente_id', type: 'int' })
+  pacienteId!: number;
+
+  @ManyToOne(() => Procedimiento, { nullable: false })
+  @JoinColumn({ name: 'procedimiento_id' })
+  procedimiento?: Procedimiento;
+
+  @Column({ name: 'procedimiento_id', type: 'int' })
+  procedimientoId!: number;
+
+  /** AAAA-MM-DD, fecha de calendario sin zona horaria. */
+  @Column({ type: 'varchar', length: 10 })
+  fecha!: string;
+
+  @Column({ name: 'hora_inicio', type: 'varchar', length: 5 })
+  horaInicio!: string;
+
+  @Column({ name: 'hora_fin', type: 'varchar', length: 5 })
+  horaFin!: string;
+
+  /** Copia de la duración del procedimiento al momento de programar la cita. */
+  @Column({ name: 'duracion_min', type: 'int' })
+  duracionMin!: number;
+
+  @Column({ type: 'varchar', length: 20, default: EstadoCita.PROGRAMADA })
+  estado!: EstadoCita;
+
+  /** HH:mm real en que el paciente llegó; vacío mientras no se registre la llegada. */
+  @Column({ name: 'hora_llegada', type: 'varchar', length: 5, nullable: true })
+  horaLlegada!: string | null;
+
+  /** Minutos de retraso pasada la tolerancia de puntualidad; 0 si llegó puntual o antes. */
+  @Column({ name: 'minutos_retraso', type: 'int', nullable: true })
+  minutosRetraso!: number | null;
+
+  /** HH:mm real en que el odontólogo inició la atención. */
+  @Column({ name: 'hora_inicio_real', type: 'varchar', length: 5, nullable: true })
+  horaInicioReal!: string | null;
+
+  /** HH:mm real en que el odontólogo terminó la atención. */
+  @Column({ name: 'hora_fin_real', type: 'varchar', length: 5, nullable: true })
+  horaFinReal!: string | null;
+
+  /** Duración real de la atención, en minutos. */
+  @Column({ name: 'duracion_real_min', type: 'int', nullable: true })
+  duracionRealMin!: number | null;
+
+  /** Duración real menos la estimada: positivo si la atención duró más de lo previsto. */
+  @Column({ name: 'diferencia_duracion_min', type: 'int', nullable: true })
+  diferenciaDuracionMin!: number | null;
+
+  /** Minutos de retraso que el paciente avisó antes de llegar. */
+  @Column({ name: 'aviso_retraso_min', type: 'int', nullable: true })
+  avisoRetrasoMin!: number | null;
+
+  /** "paciente" o "consultorio"; solo la cancelación del paciente cuenta contra él. */
+  @Column({ name: 'cancelada_por', type: 'varchar', length: 20, nullable: true })
+  canceladaPor!: OrigenCancelacion | null;
+
+  @Column({ name: 'motivo_cancelacion', type: 'varchar', length: 200, nullable: true })
+  motivoCancelacion!: string | null;
+}
