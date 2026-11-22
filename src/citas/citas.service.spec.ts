@@ -7,7 +7,7 @@ import {
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { DisponibilidadService } from '../disponibilidad/disponibilidad.service';
+import { FranjaHoraria } from '../disponibilidad/franja-horaria.entity';
 import { PacientesService } from '../pacientes/pacientes.service';
 import { ProcedimientosService } from '../procedimientos/procedimientos.service';
 import { Cita } from './cita.entity';
@@ -17,7 +17,7 @@ import { EstadoCita } from './estado-cita';
 const LUNES = '2026-11-23';
 const MARTES = '2026-11-24';
 
-const franjas = [
+const franjasLunes = [
   { id: 1, diaSemana: 1, horaInicio: '08:00', horaFin: '12:00' },
   { id: 2, diaSemana: 1, horaInicio: '14:00', horaFin: '18:00' },
 ];
@@ -49,20 +49,30 @@ async function capturar(promesa: Promise<unknown>): Promise<HttpException> {
 }
 
 function crearEntorno() {
+  // Lo que "hay en la base de datos" dentro de la transacción: el horario y las citas.
+  const estado: { franjas: typeof franjasLunes; citas: Cita[] } = {
+    franjas: franjasLunes,
+    citas: [],
+  };
+
   const manager = {
     query: jest.fn(),
     find: jest.fn(),
     create: jest.fn((_clase: unknown, datos: Partial<Cita>) => datos),
     save: jest.fn((_clase: unknown, cita: Partial<Cita>) => Promise.resolve({ id: 10, ...cita })),
   };
+  // Según la entidad consultada devuelve el horario o las citas.
+  manager.find.mockImplementation((entidad: unknown) =>
+    Promise.resolve(entidad === FranjaHoraria ? estado.franjas : estado.citas),
+  );
+
   const dataSource = {
     transaction: jest.fn((accion: (m: typeof manager) => Promise<unknown>) => accion(manager)),
   };
   const repositorio = { findOneBy: jest.fn(), find: jest.fn() };
   const pacientes = { obtener: jest.fn() };
   const procedimientos = { obtener: jest.fn() };
-  const disponibilidad = { listar: jest.fn() };
-  return { manager, dataSource, repositorio, pacientes, procedimientos, disponibilidad };
+  return { estado, manager, dataSource, repositorio, pacientes, procedimientos };
 }
 
 describe('CitasService', () => {
@@ -73,8 +83,6 @@ describe('CitasService', () => {
     entorno = crearEntorno();
     entorno.pacientes.obtener.mockResolvedValue({ id: 7 });
     entorno.procedimientos.obtener.mockResolvedValue(procedimiento30);
-    entorno.disponibilidad.listar.mockResolvedValue(franjas);
-    entorno.manager.find.mockResolvedValue([]);
 
     const modulo = await Test.createTestingModule({
       providers: [
@@ -83,7 +91,6 @@ describe('CitasService', () => {
         { provide: DataSource, useValue: entorno.dataSource },
         { provide: PacientesService, useValue: entorno.pacientes },
         { provide: ProcedimientosService, useValue: entorno.procedimientos },
-        { provide: DisponibilidadService, useValue: entorno.disponibilidad },
       ],
     }).compile();
     servicio = modulo.get(CitasService);
@@ -93,9 +100,6 @@ describe('CitasService', () => {
     it('programa la cita con la hora de fin, la duración copiada y el estado Programada', async () => {
       const cita = await servicio.crear(solicitud);
 
-      expect(entorno.manager.query).toHaveBeenCalledWith('SELECT pg_advisory_xact_lock($1)', [
-        expect.any(Number),
-      ]);
       expect(entorno.manager.save).toHaveBeenCalledWith(
         Cita,
         expect.objectContaining({
@@ -111,20 +115,56 @@ describe('CitasService', () => {
       expect(cita.id).toBe(10);
     });
 
-    it('acepta una cita que empieza justo cuando termina otra', async () => {
-      entorno.manager.find.mockResolvedValue([
-        citaExistente({ horaInicio: '08:30', horaFin: '09:00' }),
+    it('toma el bloqueo de la agenda ANTES de leer el horario y las citas', async () => {
+      await servicio.crear(solicitud);
+
+      expect(entorno.manager.query).toHaveBeenCalledWith('SELECT pg_advisory_xact_lock($1)', [
+        expect.any(Number),
       ]);
+      const ordenBloqueo = entorno.manager.query.mock.invocationCallOrder[0];
+      const ordenLecturas = entorno.manager.find.mock.invocationCallOrder;
+
+      expect(ordenLecturas).toHaveLength(2);
+      ordenLecturas.forEach((orden) => expect(orden).toBeGreaterThan(ordenBloqueo));
+    });
+
+    it('lee el horario dentro de la transacción, con el mismo manager que toma el bloqueo', async () => {
+      await servicio.crear(solicitud);
+
+      expect(entorno.dataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(entorno.manager.find).toHaveBeenCalledWith(FranjaHoraria, expect.anything());
+      expect(entorno.manager.find).toHaveBeenCalledWith(Cita, expect.anything());
+    });
+
+    it('valida contra el horario vigente al obtener el bloqueo, aunque antes fuera otro', async () => {
+      // El horario que ve la transacción ya no incluye la mañana.
+      entorno.estado.franjas = [franjasLunes[1]];
+
+      const error = await capturar(servicio.crear(solicitud));
+
+      expect(error).toBeInstanceOf(ConflictException);
+      const cuerpo = error.getResponse() as { message: string; proximosEspacios: unknown[] };
+      expect(cuerpo.message).toContain('horario de atención');
+      expect(cuerpo.proximosEspacios[0]).toEqual({
+        fecha: LUNES,
+        horaInicio: '14:00',
+        horaFin: '14:30',
+      });
+      expect(entorno.manager.save).not.toHaveBeenCalled();
+    });
+
+    it('acepta una cita que empieza justo cuando termina otra', async () => {
+      entorno.estado.citas = [citaExistente({ horaInicio: '08:30', horaFin: '09:00' })];
       await expect(servicio.crear(solicitud)).resolves.toBeDefined();
     });
 
     it('ignora las citas de otros días al validar el cruce', async () => {
-      entorno.manager.find.mockResolvedValue([citaExistente({ fecha: MARTES })]);
+      entorno.estado.citas = [citaExistente({ fecha: MARTES })];
       await expect(servicio.crear(solicitud)).resolves.toBeDefined();
     });
 
     it('rechaza un horario ocupado y sugiere los próximos espacios', async () => {
-      entorno.manager.find.mockResolvedValue([citaExistente({})]);
+      entorno.estado.citas = [citaExistente({})];
 
       const error = await capturar(servicio.crear({ ...solicitud, horaInicio: '09:15' }));
 
@@ -166,7 +206,7 @@ describe('CitasService', () => {
     });
 
     it('devuelve una lista vacía de sugerencias si no hay horario definido', async () => {
-      entorno.disponibilidad.listar.mockResolvedValue([]);
+      entorno.estado.franjas = [];
 
       const error = await capturar(servicio.crear(solicitud));
 
@@ -175,7 +215,7 @@ describe('CitasService', () => {
     });
 
     it('rechaza la cita si el paciente ya tiene otra que se cruza e indica con cuál', async () => {
-      entorno.manager.find.mockResolvedValue([citaExistente({ id: 5, pacienteId: 7 })]);
+      entorno.estado.citas = [citaExistente({ id: 5, pacienteId: 7 })];
 
       const error = await capturar(servicio.crear({ ...solicitud, horaInicio: '09:15' }));
 
