@@ -7,6 +7,7 @@ import { PacientesModule } from './pacientes/pacientes.module';
 import { ProcedimientosModule } from './procedimientos/procedimientos.module';
 import { SaludController } from './salud/salud.controller';
 import { CitasModule } from './citas/citas.module';
+import { EstimacionModule } from './estimacion/estimacion.module';
 import { FlexibilidadModule } from './flexibilidad/flexibilidad.module';
 
 @Module({
@@ -18,6 +19,7 @@ import { FlexibilidadModule } from './flexibilidad/flexibilidad.module';
     DisponibilidadModule,
     CitasModule,
     FlexibilidadModule,
+    EstimacionModule,
   ],
   controllers: [SaludController],
   providers: [
