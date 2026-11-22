@@ -7,11 +7,18 @@ import {
 import { DataSource, EntityManager, In, LessThanOrEqual } from 'typeorm';
 import { Cita } from '../citas/cita.entity';
 import { ESTADOS_QUE_OCUPAN_AGENDA, EstadoCita } from '../citas/estado-cita';
-import { BLOQUE_MINIMO_MIN, LLAVE_BLOQUEO_AGENDA } from '../comun/constantes';
+import {
+  BLOQUE_MINIMO_MIN,
+  LLAVE_BLOQUEO_AGENDA,
+  OFFSET_CONSULTORIO_MIN,
+} from '../comun/constantes';
+import { EventoAgenda, EventosAgenda } from '../comun/eventos-agenda';
 import { Reloj } from '../comun/reloj';
-import { diasEntre, horaAMinutos, minutosAHora } from '../comun/tiempo';
+import { aInstanteLocal, diasEntre, horaAMinutos, minutosAHora } from '../comun/tiempo';
 import { cabeEnHorario } from '../disponibilidad/cabe-en-horario';
 import { FranjaHoraria } from '../disponibilidad/franja-horaria.entity';
+import { EstimacionCita } from '../estimacion/estimacion-cita.entity';
+import { notificarAlAdministrador } from '../estimacion/notificar';
 import { PLAZO_RESPUESTA_PROPUESTA_MIN } from './constantes';
 import { AceptarPropuestaDto } from './dto/aceptar-propuesta.dto';
 import { CrearPropuestaDto } from './dto/crear-propuesta.dto';
@@ -68,6 +75,7 @@ export class ReprogramacionService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly reloj: Reloj,
+    private readonly eventos: EventosAgenda,
   ) {}
 
   /** El consultorio propone un nuevo horario; la cita queda "Por reprogramar" a la espera de respuesta. */
@@ -158,12 +166,21 @@ export class ReprogramacionService {
       propuesta.estado = EstadoPropuesta.ACEPTADA;
       propuesta.respondidaEn = ahora;
       propuesta.respondidaPor = dto.origen ?? OrigenRespuesta.PACIENTE;
-      return {
+      const guardada = {
         propuesta: await manager.save(propuesta),
         cita: await manager.save(cita),
       };
+      // La cita cambió de horario: su estimación anterior ya no sirve.
+      await manager.delete(EstimacionCita, { citaId: cita.id });
+      return guardada;
     });
-    return this.resultadoOPlazoVencido(resultado);
+
+    const aceptada = this.resultadoOPlazoVencido(resultado);
+    await this.avisarALaAgenda('propuesta_aceptada', [
+      aceptada.propuesta.fechaOriginal,
+      aceptada.propuesta.fecha,
+    ]);
+    return aceptada;
   }
 
   /** Escenario 2: el paciente conserva su cita original y se avisa al administrador. */
@@ -175,8 +192,10 @@ export class ReprogramacionService {
       await this.cerrarSinCambio(manager, propuesta, cita, estado, ahora);
       return vencida ? null : propuesta;
     });
+    const rechazada = this.resultadoOPlazoVencido(resultado);
+    await this.avisarALaAgenda('propuesta_rechazada', [rechazada.fechaOriginal]);
     return {
-      propuesta: this.resultadoOPlazoVencido(resultado),
+      propuesta: rechazada,
       notificarAdministrador: true,
       evaluarSiguienteAlternativa: true,
     };
@@ -184,7 +203,7 @@ export class ReprogramacionService {
 
   /** Escenario 3: cierra las propuestas cuyo plazo venció; la cita original se mantiene. */
   async vencer(): Promise<RespuestaVencimientos> {
-    return this.enTransaccion(async (manager) => {
+    const resultado = await this.enTransaccion(async (manager) => {
       const ahora = this.reloj.ahora();
       const pendientes = await manager.find(PropuestaReprogramacion, {
         where: { estado: EstadoPropuesta.PENDIENTE, venceEn: LessThanOrEqual(ahora) },
@@ -210,6 +229,12 @@ export class ReprogramacionService {
       }
       return { vencidas, notificarAdministrador: vencidas.length > 0 };
     });
+
+    await this.avisarALaAgenda(
+      'propuesta_vencida',
+      resultado.vencidas.map((p) => p.fechaOriginal),
+    );
+    return resultado;
   }
 
   /** Toma el bloqueo de la agenda antes de leer, para no pisar otros cambios que ocurran a la vez. */
@@ -266,7 +291,27 @@ export class ReprogramacionService {
       cita.estado = propuesta.estadoCitaAnterior;
       await manager.save(cita);
     }
+    await notificarAlAdministrador(manager, {
+      pacienteId: cita.pacienteId,
+      citaId: cita.id,
+      tipo: estado === EstadoPropuesta.RECHAZADA ? 'propuesta_rechazada' : 'propuesta_vencida',
+      mensaje:
+        estado === EstadoPropuesta.RECHAZADA
+          ? `El paciente rechazó la propuesta ${propuesta.id} para la cita ${cita.id}. Evalúe la siguiente alternativa.`
+          : `La propuesta ${propuesta.id} para la cita ${cita.id} venció sin respuesta; se mantiene la cita original.`,
+    });
     return manager.save(propuesta);
+  }
+
+  /**
+   * Avisa a la agenda después de confirmar la transacción. Solo la agenda de hoy se recalcula:
+   * las horas estimadas se miden contra el reloj, que no dice nada de otro día.
+   */
+  private async avisarALaAgenda(tipo: EventoAgenda['tipo'], fechas: string[]): Promise<void> {
+    const hoy = aInstanteLocal(this.reloj.ahora(), OFFSET_CONSULTORIO_MIN).fecha;
+    if (fechas.includes(hoy)) {
+      await this.eventos.emitir({ tipo, fecha: hoy });
+    }
   }
 
   private resultadoOPlazoVencido<T>(resultado: T | null): T {

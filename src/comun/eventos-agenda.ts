@@ -7,7 +7,11 @@ export interface EventoAgenda {
     | 'atencion_finalizada'
     | 'aviso_retraso'
     | 'cita_cancelada'
-    | 'inasistencia_registrada';
+    | 'inasistencia_registrada'
+    | 'llegada_registrada'
+    | 'propuesta_aceptada'
+    | 'propuesta_rechazada'
+    | 'propuesta_vencida';
   /** Día de la agenda afectada, AAAA-MM-DD. */
   fecha: string;
 }
