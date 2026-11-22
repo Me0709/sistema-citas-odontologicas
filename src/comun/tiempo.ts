@@ -49,3 +49,25 @@ export function diasEntre(desde: string, hasta: string): number {
   const [a2, m2, d2] = partesDeFecha(hasta);
   return Math.round((Date.UTC(a2, m2 - 1, d2) - Date.UTC(a1, m1 - 1, d1)) / MS_POR_DIA);
 }
+
+export interface InstanteLocal {
+  fecha: string;
+  minutos: number;
+}
+
+/** Convierte un instante a la fecha (AAAA-MM-DD) y los minutos del día en la hora del consultorio. */
+export function aInstanteLocal(instante: Date, offsetMin: number): InstanteLocal {
+  const local = new Date(instante.getTime() + offsetMin * 60_000);
+  return {
+    fecha: local.toISOString().slice(0, 10),
+    minutos: local.getUTCHours() * 60 + local.getUTCMinutes(),
+  };
+}
+
+/** Indica si la fecha y la hora dadas son estrictamente posteriores al instante de referencia. */
+export function esPosteriorA(fecha: string, hora: string, referencia: InstanteLocal): boolean {
+  if (fecha !== referencia.fecha) {
+    return fecha > referencia.fecha;
+  }
+  return horaAMinutos(hora) > referencia.minutos;
+}

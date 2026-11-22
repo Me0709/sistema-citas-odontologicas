@@ -13,7 +13,6 @@ import {
   LLAVE_BLOQUEO_AGENDA,
 } from '../comun/constantes';
 import { diaIso, fechaValida, horaAMinutos, minutosAHora, sumarDias } from '../comun/tiempo';
-import { DisponibilidadService } from '../disponibilidad/disponibilidad.service';
 import { FranjaHoraria } from '../disponibilidad/franja-horaria.entity';
 import { PacientesService } from '../pacientes/pacientes.service';
 import { ProcedimientosService } from '../procedimientos/procedimientos.service';
@@ -41,7 +40,6 @@ export class CitasService {
     private readonly dataSource: DataSource,
     private readonly pacientes: PacientesService,
     private readonly procedimientos: ProcedimientosService,
-    private readonly disponibilidad: DisponibilidadService,
   ) {}
 
   async crear(dto: CrearCitaDto): Promise<Cita> {
@@ -59,11 +57,16 @@ export class CitasService {
     }
     const duracion = procedimiento.duracionMin;
     const fin = inicio + duracion;
-    const franjas = await this.disponibilidad.listar();
 
     return this.dataSource.transaction(async (manager) => {
-      // Un solo odontólogo = una sola agenda: se serializa la creación de citas.
+      // Un solo odontólogo = una sola agenda: se serializa la creación de citas y el cambio de horario.
       await manager.query('SELECT pg_advisory_xact_lock($1)', [LLAVE_BLOQUEO_AGENDA]);
+
+      // El horario se lee dentro de la transacción y DESPUÉS del bloqueo: si otro cambio de horario
+      // estaba en curso, aquí ya se ve el horario confirmado y la cita no se valida contra uno viejo.
+      const franjas = await manager.find(FranjaHoraria, {
+        order: { diaSemana: 'ASC', horaInicio: 'ASC' },
+      });
 
       const ultimaFecha = sumarDias(dto.fecha, DIAS_BUSQUEDA_SUGERENCIAS - 1);
       const citas = await manager.find(Cita, {
