@@ -1,6 +1,7 @@
 import { ConflictException, HttpException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { LLAVE_BLOQUEO_AGENDA } from '../comun/constantes';
 import { Reloj } from '../comun/reloj';
 import { Cita } from './cita.entity';
 import { EstadoCita } from './estado-cita';
@@ -8,6 +9,10 @@ import { IncidenciasService } from './incidencias.service';
 import { OrigenCancelacion } from './origen-cancelacion';
 
 const LUNES = '2026-11-23';
+
+/** Instante que en el consultorio (UTC-5) es el lunes 23 a la hora indicada. */
+const horaDelLunes = (hora: number, minutos = 0) =>
+  new Date(Date.UTC(2026, 10, 23, hora + 5, minutos));
 
 const cita = (datos: Partial<Cita> = {}): Cita =>
   ({
@@ -36,16 +41,21 @@ async function capturar(promesa: Promise<unknown>): Promise<HttpException> {
 
 describe('IncidenciasService', () => {
   let servicio: IncidenciasService;
-  const repositorio = { findOneBy: jest.fn(), save: jest.fn() };
+  const repositorio = { findOneBy: jest.fn(), save: jest.fn(), query: jest.fn() };
+  const dataSource = { transaction: jest.fn() };
   const reloj = { ahora: jest.fn() };
 
   beforeEach(async () => {
     jest.resetAllMocks();
+    dataSource.transaction.mockImplementation(
+      (accion: (m: typeof repositorio) => Promise<unknown>) => accion(repositorio),
+    );
     repositorio.save.mockImplementation((c: Cita) => Promise.resolve(c));
+    reloj.ahora.mockReturnValue(horaDelLunes(9, 20));
     const modulo = await Test.createTestingModule({
       providers: [
         IncidenciasService,
-        { provide: getRepositoryToken(Cita), useValue: repositorio },
+        { provide: DataSource, useValue: dataSource },
         { provide: Reloj, useValue: reloj },
       ],
     }).compile();
@@ -242,18 +252,40 @@ describe('IncidenciasService', () => {
 
     it('sin hora indicada usa el reloj si la cita es de hoy', async () => {
       repositorio.findOneBy.mockResolvedValue(cita());
-      reloj.ahora.mockReturnValue(new Date(2026, 10, 23, 9, 20));
+      reloj.ahora.mockReturnValue(horaDelLunes(9, 20));
 
       const resultado = await servicio.registrarInasistencia(5, {});
 
       expect(resultado.estado).toBe(EstadoCita.INASISTENCIA);
     });
 
-    it('sin hora indicada rechaza si la cita no es de hoy', async () => {
+    it('rechaza la inasistencia de una cita de un día futuro', async () => {
+      repositorio.findOneBy.mockResolvedValue(cita({ fecha: '2026-11-24' }));
+
+      await expect(servicio.registrarInasistencia(5, { hora: '09:30' })).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(repositorio.save).not.toHaveBeenCalled();
+    });
+
+    it('acepta la inasistencia de una cita de un día anterior, que ya venció', async () => {
+      repositorio.findOneBy.mockResolvedValue(cita({ fecha: '2026-11-20' }));
+
+      const resultado = await servicio.registrarInasistencia(5, {});
+
+      expect(resultado.estado).toBe(EstadoCita.INASISTENCIA);
+    });
+
+    it('lee la hora del reloj en hora del consultorio, no en la del servidor', async () => {
       repositorio.findOneBy.mockResolvedValue(cita());
-      reloj.ahora.mockReturnValue(new Date(2026, 10, 24, 9, 20));
+      reloj.ahora.mockReturnValue(new Date('2026-11-23T14:15:00Z'));
 
       await expect(servicio.registrarInasistencia(5, {})).rejects.toBeInstanceOf(ConflictException);
+
+      reloj.ahora.mockReturnValue(new Date('2026-11-23T14:16:00Z'));
+      const resultado = await servicio.registrarInasistencia(5, {});
+
+      expect(resultado.estado).toBe(EstadoCita.INASISTENCIA);
     });
 
     it('responde 404 si la cita no existe', async () => {
@@ -263,5 +295,28 @@ describe('IncidenciasService', () => {
         NotFoundException,
       );
     });
+  });
+
+  describe('concurrencia', () => {
+    it.each([
+      ['avisarRetraso', () => servicio.avisarRetraso(5, { minutos: 10 })],
+      ['cancelar', () => servicio.cancelar(5, { origen: OrigenCancelacion.PACIENTE })],
+      ['registrarInasistencia', () => servicio.registrarInasistencia(5, { hora: '09:30' })],
+    ])(
+      '%s toma el bloqueo de la agenda dentro de la transacción antes de leer la cita',
+      async (_n, accion) => {
+        repositorio.findOneBy.mockResolvedValue(cita());
+
+        await accion();
+
+        expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+        expect(repositorio.query).toHaveBeenCalledWith('SELECT pg_advisory_xact_lock($1)', [
+          LLAVE_BLOQUEO_AGENDA,
+        ]);
+        expect(repositorio.query.mock.invocationCallOrder[0]).toBeLessThan(
+          repositorio.findOneBy.mock.invocationCallOrder[0],
+        );
+      },
+    );
   });
 });
