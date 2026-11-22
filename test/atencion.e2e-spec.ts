@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
+import { Reloj } from '../src/comun/reloj';
 
 describe('HU-07 Iniciar y finalizar la atención', () => {
   let app: INestApplication;
@@ -11,6 +12,9 @@ describe('HU-07 Iniciar y finalizar la atención', () => {
 
   // El 2026-11-23 es lunes; el horario de prueba es lunes 08:00-12:00 y 14:00-18:00.
   const LUNES = '2026-11-23';
+
+  // La hora del consultorio es UTC-5: 14:00 UTC es la 09:00 del lunes en Colombia.
+  let ahora = new Date('2026-11-23T14:00:00Z');
 
   const api = () => request(app.getHttpServer());
 
@@ -59,13 +63,17 @@ describe('HU-07 Iniciar y finalizar la atención', () => {
   const obtenerCita = async (id: number) => (await api().get(`/citas/${id}`).expect(200)).body;
 
   beforeAll(async () => {
-    const modulo = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const modulo = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(Reloj)
+      .useValue({ ahora: () => ahora })
+      .compile();
     app = modulo.createNestApplication();
     await app.init();
     dataSource = app.get(DataSource);
   });
 
   beforeEach(async () => {
+    ahora = new Date('2026-11-23T14:00:00Z');
     await dataSource.query(
       'TRUNCATE TABLE citas, pacientes, procedimientos, franjas_horarias RESTART IDENTITY CASCADE',
     );
@@ -185,6 +193,30 @@ describe('HU-07 Iniciar y finalizar la atención', () => {
   it('responde 404 si la cita no existe', async () => {
     await iniciar(999, { hora: '09:00' }).expect(404);
     await finalizar(999, { hora: '09:30' }).expect(404);
+  });
+
+  it('sin hora indicada usa el reloj en hora del consultorio', async () => {
+    const id = await citaEnSala('09:00');
+    ahora = new Date('2026-11-23T14:05:00Z');
+    expect((await iniciar(id).expect(200)).body.horaInicioReal).toBe('09:05');
+
+    ahora = new Date('2026-11-23T14:40:00Z');
+    const respuesta = await finalizar(id).expect(200);
+
+    expect(respuesta.body).toMatchObject({
+      estado: 'Atendida',
+      horaFinReal: '09:40',
+      duracionRealMin: 35,
+    });
+  });
+
+  it('solo se registra la atención el día de la cita, también cuando se envía la hora', async () => {
+    const id = await citaEnSala('09:00');
+    ahora = new Date('2026-11-24T14:00:00Z');
+
+    await iniciar(id, { hora: '09:00' }).expect(409);
+    await iniciar(id).expect(409);
+    expect((await obtenerCita(id)).estado).toBe('En sala');
   });
 
   it('responde 400 si la hora no tiene formato HH:mm', async () => {
