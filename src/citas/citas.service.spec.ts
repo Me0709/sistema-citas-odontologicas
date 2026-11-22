@@ -70,7 +70,8 @@ function crearEntorno() {
     transaction: jest.fn((accion: (m: typeof manager) => Promise<unknown>) => accion(manager)),
   };
   const repositorio = { findOneBy: jest.fn(), find: jest.fn() };
-  const pacientes = { obtener: jest.fn() };
+  // El servicio de pacientes se usa solo con existe(); obtener() carga el historial y no debe llamarse.
+  const pacientes = { existe: jest.fn(), obtener: jest.fn() };
   const procedimientos = { obtener: jest.fn() };
   return { estado, manager, dataSource, repositorio, pacientes, procedimientos };
 }
@@ -81,7 +82,8 @@ describe('CitasService', () => {
 
   beforeEach(async () => {
     entorno = crearEntorno();
-    entorno.pacientes.obtener.mockResolvedValue({ id: 7 });
+    // existe() no devuelve nada; si el paciente no existe, lanza 404.
+    entorno.pacientes.existe.mockResolvedValue(undefined);
     entorno.procedimientos.obtener.mockResolvedValue(procedimiento30);
 
     const modulo = await Test.createTestingModule({
@@ -240,9 +242,16 @@ describe('CitasService', () => {
     });
 
     it('propaga el 404 si el paciente no existe', async () => {
-      entorno.pacientes.obtener.mockRejectedValue(new NotFoundException('No existe el paciente 7'));
+      entorno.pacientes.existe.mockRejectedValue(new NotFoundException('No existe el paciente 7'));
       await expect(servicio.crear(solicitud)).rejects.toThrow(NotFoundException);
       expect(entorno.dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('verifica al paciente con existe() y no con obtener(), que carga el historial', async () => {
+      await servicio.crear(solicitud);
+
+      expect(entorno.pacientes.existe).toHaveBeenCalledWith(7);
+      expect(entorno.pacientes.obtener).not.toHaveBeenCalled();
     });
   });
 
