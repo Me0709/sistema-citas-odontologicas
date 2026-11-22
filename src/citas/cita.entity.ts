@@ -47,4 +47,20 @@ export class Cita {
   /** Minutos de retraso pasada la tolerancia de puntualidad; 0 si llegó puntual o antes. */
   @Column({ name: 'minutos_retraso', type: 'int', nullable: true })
   minutosRetraso!: number | null;
+
+  /** HH:mm real en que el odontólogo inició la atención. */
+  @Column({ name: 'hora_inicio_real', type: 'varchar', length: 5, nullable: true })
+  horaInicioReal!: string | null;
+
+  /** HH:mm real en que el odontólogo terminó la atención. */
+  @Column({ name: 'hora_fin_real', type: 'varchar', length: 5, nullable: true })
+  horaFinReal!: string | null;
+
+  /** Duración real de la atención, en minutos. */
+  @Column({ name: 'duracion_real_min', type: 'int', nullable: true })
+  duracionRealMin!: number | null;
+
+  /** Duración real menos la estimada: positivo si la atención duró más de lo previsto. */
+  @Column({ name: 'diferencia_duracion_min', type: 'int', nullable: true })
+  diferenciaDuracionMin!: number | null;
 }

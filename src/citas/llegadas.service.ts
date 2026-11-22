@@ -5,15 +5,11 @@ import { TIEMPO_MAXIMO_ESPERA_MIN, TOLERANCIA_PUNTUALIDAD_MIN } from '../comun/c
 import { Reloj } from '../comun/reloj';
 import { horaAMinutos } from '../comun/tiempo';
 import { Cita } from './cita.entity';
+import { horaIndicadaOActual } from './hora-actual';
 import { RegistrarLlegadaDto } from './dto/registrar-llegada.dto';
 import { EstadoCita } from './estado-cita';
 
 const ESTADOS_QUE_ADMITEN_LLEGADA: EstadoCita[] = [EstadoCita.PROGRAMADA, EstadoCita.CONFIRMADA];
-
-const dosDigitos = (n: number): string => n.toString().padStart(2, '0');
-const fechaLocal = (d: Date): string =>
-  `${d.getFullYear()}-${dosDigitos(d.getMonth() + 1)}-${dosDigitos(d.getDate())}`;
-const horaLocal = (d: Date): string => `${dosDigitos(d.getHours())}:${dosDigitos(d.getMinutes())}`;
 
 @Injectable()
 export class LlegadasService {
@@ -38,7 +34,7 @@ export class LlegadasService {
       );
     }
 
-    const horaLlegada = dto.horaLlegada ?? this.horaActual(cita);
+    const horaLlegada = horaIndicadaOActual(this.reloj, cita, dto.horaLlegada);
     const diferencia = horaAMinutos(horaLlegada) - horaAMinutos(cita.horaInicio);
 
     if (diferencia > TIEMPO_MAXIMO_ESPERA_MIN) {
@@ -52,17 +48,6 @@ export class LlegadasService {
     cita.minutosRetraso = diferencia > TOLERANCIA_PUNTUALIDAD_MIN ? diferencia : 0;
     cita.estado = EstadoCita.EN_SALA;
     return this.repositorio.save(cita);
-  }
-
-  /** Sin hora indicada se usa el reloj, y la cita tiene que ser de hoy. */
-  private horaActual(cita: Cita): string {
-    const ahora = this.reloj.ahora();
-    if (fechaLocal(ahora) !== cita.fecha) {
-      throw new ConflictException(
-        `La cita es del ${cita.fecha}; indique la hora de llegada para registrarla`,
-      );
-    }
-    return horaLocal(ahora);
   }
 
   private errorInasistencia(mensaje: string, cita: Cita): ConflictException {
