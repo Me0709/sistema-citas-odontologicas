@@ -2,6 +2,7 @@ import { ConflictException, HttpException, NotFoundException } from '@nestjs/com
 import { Test } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 import { LLAVE_BLOQUEO_AGENDA } from '../comun/constantes';
+import { EventosAgenda } from '../comun/eventos-agenda';
 import { Reloj } from '../comun/reloj';
 import { Cita } from './cita.entity';
 import { EstadoCita } from './estado-cita';
@@ -44,6 +45,7 @@ describe('IncidenciasService', () => {
   const repositorio = { findOneBy: jest.fn(), save: jest.fn(), query: jest.fn() };
   const dataSource = { transaction: jest.fn() };
   const reloj = { ahora: jest.fn() };
+  const eventos = { emitir: jest.fn() };
 
   beforeEach(async () => {
     jest.resetAllMocks();
@@ -52,11 +54,13 @@ describe('IncidenciasService', () => {
     );
     repositorio.save.mockImplementation((c: Cita) => Promise.resolve(c));
     reloj.ahora.mockReturnValue(horaDelLunes(9, 20));
+    eventos.emitir.mockResolvedValue(undefined);
     const modulo = await Test.createTestingModule({
       providers: [
         IncidenciasService,
         { provide: DataSource, useValue: dataSource },
         { provide: Reloj, useValue: reloj },
+        { provide: EventosAgenda, useValue: eventos },
       ],
     }).compile();
     servicio = modulo.get(IncidenciasService);
@@ -318,5 +322,87 @@ describe('IncidenciasService', () => {
         );
       },
     );
+  });
+
+  describe('eventos de la agenda', () => {
+    const acciones = [
+      ['avisarRetraso', 'aviso_retraso', () => servicio.avisarRetraso(5, { minutos: 10 })],
+      [
+        'cancelar',
+        'cita_cancelada',
+        () => servicio.cancelar(5, { origen: OrigenCancelacion.PACIENTE }),
+      ],
+      [
+        'registrarInasistencia',
+        'inasistencia_registrada',
+        () => servicio.registrarInasistencia(5, { hora: '09:30' }),
+      ],
+    ] as const;
+
+    it.each(acciones)('%s avisa a la agenda con el día de la cita', async (_n, tipo, accion) => {
+      repositorio.findOneBy.mockResolvedValue(cita());
+
+      await accion();
+
+      expect(eventos.emitir).toHaveBeenCalledTimes(1);
+      expect(eventos.emitir).toHaveBeenCalledWith({ tipo, fecha: LUNES });
+    });
+
+    it.each(acciones)(
+      '%s avisa después de confirmar la transacción, no dentro de ella',
+      async (_n, _tipo, accion) => {
+        const orden: string[] = [];
+        dataSource.transaction.mockImplementation(
+          async (hacer: (m: typeof repositorio) => Promise<unknown>) => {
+            const resultado = await hacer(repositorio);
+            orden.push('commit');
+            return resultado;
+          },
+        );
+        eventos.emitir.mockImplementation(() => {
+          orden.push('evento');
+          return Promise.resolve();
+        });
+        repositorio.findOneBy.mockResolvedValue(cita());
+
+        await accion();
+
+        expect(orden).toEqual(['commit', 'evento']);
+      },
+    );
+
+    it.each(acciones)('%s no avisa si la operación falla', async (_n, _tipo, accion) => {
+      repositorio.findOneBy.mockResolvedValue(null);
+
+      await capturar(accion());
+
+      expect(eventos.emitir).not.toHaveBeenCalled();
+    });
+
+    it('no avisa si la cita es de otro día: la agenda de hoy no cambia', async () => {
+      repositorio.findOneBy.mockResolvedValue(cita({ fecha: '2026-11-30' }));
+
+      await servicio.cancelar(5, { origen: OrigenCancelacion.PACIENTE });
+
+      expect(eventos.emitir).not.toHaveBeenCalled();
+    });
+
+    it('no avisa la inasistencia de una cita de un día anterior', async () => {
+      repositorio.findOneBy.mockResolvedValue(cita({ fecha: '2026-11-16' }));
+
+      await servicio.registrarInasistencia(5, {});
+
+      expect(eventos.emitir).not.toHaveBeenCalled();
+    });
+
+    it('decide el día con el reloj en hora del consultorio, no con el del servidor', async () => {
+      // 23:30 del lunes en el consultorio ya es el martes 00:30 en UTC.
+      reloj.ahora.mockReturnValue(new Date(Date.UTC(2026, 10, 24, 4, 30)));
+      repositorio.findOneBy.mockResolvedValue(cita());
+
+      await servicio.avisarRetraso(5, { minutos: 10 });
+
+      expect(eventos.emitir).toHaveBeenCalledWith({ tipo: 'aviso_retraso', fecha: LUNES });
+    });
   });
 });
