@@ -7,6 +7,7 @@ import { OFFSET_CONSULTORIO_MIN } from '../comun/constantes';
 import { Reloj } from '../comun/reloj';
 import { aInstanteLocal, fechaValida, horaAMinutos, minutosAHora } from '../comun/tiempo';
 import { DisponibilidadService, EspacioAgenda } from '../disponibilidad/disponibilidad.service';
+import { retrasoAvisado, sinAdelanto } from '../estimacion/calculo-agenda';
 import { FlexibilidadCitaService } from '../flexibilidad/flexibilidad-cita.service';
 import { HoraEstimada, recalcularHorasEstimadas } from '../reordenamiento/dominio/hora-estimada';
 
@@ -116,11 +117,14 @@ export class AgendaService {
     // Sin preferencia declarada (HU-05), el paciente debe mantener su horario.
     const porRecalcular = citas.filter((c) => ESTADOS_PENDIENTES.includes(c.estado));
     const flexibilidades = await this.flexibilidad.porCitas(porRecalcular.map((c) => c.id));
+    // Quien avisó que llegará tarde no puede empezar antes de su llegada, y solo cuenta hoy.
+    const retraso = (c: Cita): number => (ahora.fecha === fecha ? retrasoAvisado(c) : 0);
     const pendientes = porRecalcular.map((c) => ({
       citaId: c.id,
-      inicioPrevisto: aInstante(fecha, horaAMinutos(c.horaInicio)),
+      inicioPrevisto: aInstante(fecha, horaAMinutos(c.horaInicio) + retraso(c)),
       duracionMin: c.duracionMin,
-      flexibilidad: flexibilidades.get(c.id)!,
+      flexibilidad:
+        retraso(c) > 0 ? sinAdelanto(flexibilidades.get(c.id)!) : flexibilidades.get(c.id)!,
     }));
 
     return new Map(recalcularHorasEstimadas(pendientes, libreDesde).map((e) => [e.citaId, e]));
@@ -136,7 +140,10 @@ export class AgendaService {
       duracionMin: cita.duracionMin,
       estado: cita.estado,
       horaEstimada: estimada ? aHora(estimada.inicioEstimado) : null,
-      cambioMin: estimada ? estimada.cambioMin : null,
+      // El cambio se mide contra la hora programada original, no contra la llegada avisada.
+      cambioMin: estimada
+        ? horaAMinutos(aHora(estimada.inicioEstimado)) - horaAMinutos(cita.horaInicio)
+        : null,
       avisoRetrasoMin: cita.avisoRetrasoMin,
       horaLlegada: cita.horaLlegada,
       horaInicioReal: cita.horaInicioReal,
