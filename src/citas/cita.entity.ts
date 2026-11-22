@@ -39,4 +39,12 @@ export class Cita {
 
   @Column({ type: 'varchar', length: 20, default: EstadoCita.PROGRAMADA })
   estado!: EstadoCita;
+
+  /** HH:mm real en que el paciente llegó; vacío mientras no se registre la llegada. */
+  @Column({ name: 'hora_llegada', type: 'varchar', length: 5, nullable: true })
+  horaLlegada!: string | null;
+
+  /** Minutos de retraso pasada la tolerancia de puntualidad; 0 si llegó puntual o antes. */
+  @Column({ name: 'minutos_retraso', type: 'int', nullable: true })
+  minutosRetraso!: number | null;
 }
