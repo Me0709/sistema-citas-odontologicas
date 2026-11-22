@@ -2,7 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 
 /** Hecho de la agenda del día que puede obligar a recalcular las horas estimadas. */
 export interface EventoAgenda {
-  tipo: 'atencion_iniciada' | 'atencion_finalizada';
+  tipo:
+    | 'atencion_iniciada'
+    | 'atencion_finalizada'
+    | 'aviso_retraso'
+    | 'cita_cancelada'
+    | 'inasistencia_registrada';
   /** Día de la agenda afectada, AAAA-MM-DD. */
   fecha: string;
 }

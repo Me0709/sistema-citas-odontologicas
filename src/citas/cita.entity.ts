@@ -2,6 +2,7 @@ import { Column, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } 
 import { Paciente } from '../pacientes/paciente.entity';
 import { Procedimiento } from '../procedimientos/procedimiento.entity';
 import { EstadoCita } from './estado-cita';
+import { OrigenCancelacion } from './origen-cancelacion';
 
 @Entity('citas')
 @Index(['fecha'])
@@ -63,4 +64,15 @@ export class Cita {
   /** Duración real menos la estimada: positivo si la atención duró más de lo previsto. */
   @Column({ name: 'diferencia_duracion_min', type: 'int', nullable: true })
   diferenciaDuracionMin!: number | null;
+
+  /** Minutos de retraso que el paciente avisó antes de llegar. */
+  @Column({ name: 'aviso_retraso_min', type: 'int', nullable: true })
+  avisoRetrasoMin!: number | null;
+
+  /** "paciente" o "consultorio"; solo la cancelación del paciente cuenta contra él. */
+  @Column({ name: 'cancelada_por', type: 'varchar', length: 20, nullable: true })
+  canceladaPor!: OrigenCancelacion | null;
+
+  @Column({ name: 'motivo_cancelacion', type: 'varchar', length: 200, nullable: true })
+  motivoCancelacion!: string | null;
 }
