@@ -429,7 +429,7 @@ function modalAlternativas() {
           <select id="cita-evento"><option value="">Ninguna en particular</option>${opciones}</select></label>
       </div>
       <div id="resultado-alt"></div>`,
-    pie: `<button type="button" class="btn" data-cerrar>Cerrar</button><button type="button" class="btn primario" data-ok>${ico('chispa')}Analizar</button>`,
+    pie: `<button type="button" class="btn" data-cerrar>Cerrar</button><button type="button" class="btn primario" data-ok>${ico('mezclar')}Analizar</button>`,
   });
   dialogo.querySelector('[data-ok]').addEventListener('click', async (e) => {
     const salida = dialogo.querySelector('#resultado-alt');
@@ -478,6 +478,6 @@ function pintarAlternativas(r) {
       <span class="chip">${ico('mezclar')}${r.explicacion.alternativasEvaluadas} alternativas evaluadas</span>
     </div>
     ${mueve.length ? r.propuesta.asignaciones.map(filaCambio).join('') : '<div class="aviso exito">' + ico('check-circulo') + '<div>Nadie necesita moverse: la agenda se mantiene como está.</div></div>'}
-    <div class="explicacion"><strong>${ico('chispa')}¿Por qué esta propuesta?</strong>${esc(r.explicacion.motivo)}</div>
+    <div class="explicacion"><strong>${ico('info')}¿Por qué esta propuesta?</strong>${esc(r.explicacion.motivo)}</div>
     ${r.otras.length ? `<p class="fecha-larga" style="text-transform:none">Otras ${r.otras.length} alternativa(s): ${r.otras.map((o) => `${o.desplazamientoTotalMin} min`).join(', ')} de desplazamiento total.</p>` : ''}`;
 }

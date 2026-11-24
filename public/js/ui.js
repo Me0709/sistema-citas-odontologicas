@@ -50,14 +50,21 @@ export const chipEstado = (estado) =>
   `<span class="chip ${claseEstado(estado)}">${ico(ESTADOS[estado]?.icono ?? 'calendario')}${esc(estado)}</span>`;
 
 // ---------- avatares ----------
-const PALETAS = [['#0f766e'], ['#4a5ba8'], ['#8a5a2b'], ['#5b6b7c'], ['#2f6f4f'], ['#7a4b6d']];
+const PALETAS = [
+  ['#14b8b0', '#5568e8'],
+  ['#f59e0b', '#ef6a4b'],
+  ['#8a5cf0', '#d646b5'],
+  ['#2f7de1', '#14b8b0'],
+  ['#1d9f65', '#8bc34a'],
+  ['#e0457b', '#f59e0b'],
+];
 export function avatar(nombre) {
   const partes = String(nombre ?? '?').trim().split(/\s+/);
   const iniciales = ((partes[0]?.[0] ?? '?') + (partes[1]?.[0] ?? '')).toUpperCase();
   let h = 0;
   for (const c of String(nombre)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  const [a] = PALETAS[h % PALETAS.length];
-  return `<span class="avatar" style="--c1:${a}" aria-hidden="true">${esc(iniciales)}</span>`;
+  const [a, b] = PALETAS[h % PALETAS.length];
+  return `<span class="avatar" style="--c1:${a};--c2:${b}" aria-hidden="true">${esc(iniciales)}</span>`;
 }
 
 // ---------- avisos ----------

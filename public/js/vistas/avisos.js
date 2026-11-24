@@ -7,7 +7,7 @@ const TIPOS = {
   adelanto: { icono: 'rayo', clase: 'ico-ok', titulo: 'Puede adelantar su cita' },
   requiere_alternativas: { icono: 'mezclar', clase: 'ico-violeta', titulo: 'Debe mantener su horario' },
   sin_alternativas: { icono: 'alerta', clase: 'ico-peligro', titulo: 'Sin alternativas posibles' },
-  alternativas_propuestas: { icono: 'chispa', clase: 'ico-acento', titulo: 'Alternativas propuestas' },
+  alternativas_propuestas: { icono: 'mezclar', clase: 'ico-acento', titulo: 'Alternativas propuestas' },
   cita_cancelada: { icono: 'x-circulo', clase: 'ico-peligro', titulo: 'Cita cancelada por el consultorio' },
   propuesta_rechazada: { icono: 'usuario-x', clase: 'ico-aviso', titulo: 'Propuesta rechazada' },
   propuesta_vencida: { icono: 'reloj', clase: 'ico-aviso', titulo: 'Propuesta sin respuesta' },

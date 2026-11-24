@@ -55,7 +55,7 @@ async function verificarServidor() {
 }
 
 document.getElementById('logo').innerHTML = ico('diente');
-document.getElementById('pie-icono').innerHTML = `${ico('chispa')}Agenda inteligente`;
+document.getElementById('pie-icono').innerHTML = `${ico('actividad')}Recálculo automático`;
 window.addEventListener('hashchange', navegar);
 navegar();
 verificarServidor();

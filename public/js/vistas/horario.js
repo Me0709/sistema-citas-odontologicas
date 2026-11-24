@@ -14,7 +14,7 @@ export async function montar(contenedor) {
     <header class="cabecera">
       <div><h1>Horario de atención</h1><p>Define los días y las franjas en que atiende el odontólogo.</p></div>
       <div class="cabecera-acciones">
-        <button type="button" class="btn" data-accion="ejemplo">${ico('chispa')}Lunes a viernes</button>
+        <button type="button" class="btn" data-accion="ejemplo" title="Rellena lunes a viernes con 08:00–12:00 y 14:00–18:00 y deja sábado y domingo sin atención. No se guarda hasta pulsar «Guardar horario».">${ico('calendario-ok')}Aplicar horario estándar</button>
         <button type="button" class="btn primario" data-accion="guardar">${ico('check')}Guardar horario</button>
       </div>
     </header>

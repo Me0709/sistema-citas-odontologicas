@@ -92,12 +92,12 @@ function modalNuevo() {
     titulo: 'Nuevo paciente',
     icono: 'usuario-mas',
     cuerpo: `<form class="formulario" id="form-paciente" novalidate>
-      <label class="campo"><span>Nombre completo</span><input id="nombre" autocomplete="off" maxlength="150" required /></label>
+      <label class="campo"><span>Nombre completo</span><input id="nombre" autocomplete="off" maxlength="150" placeholder="Nombres y apellidos" required /></label>
       <div class="rejilla-2">
-        <label class="campo"><span>Documento</span><input id="documento" inputmode="numeric" maxlength="20" placeholder="Solo números" required /></label>
-        <label class="campo"><span>Teléfono</span><input id="telefono" inputmode="tel" maxlength="15" placeholder="3001234567" required /></label>
+        <label class="campo"><span>Documento</span><input id="documento" inputmode="numeric" maxlength="20" placeholder="Ej.: 1001234567" required /></label>
+        <label class="campo"><span>Teléfono</span><input id="telefono" inputmode="tel" maxlength="15" placeholder="Ej.: 3001234567" required /></label>
       </div>
-      <label class="campo"><span>Correo electrónico</span><input id="correo" type="email" maxlength="150" required /></label>
+      <label class="campo"><span>Correo electrónico</span><input id="correo" type="email" maxlength="150" placeholder="nombre@correo.com" required /></label>
       <label class="opcion" style="align-items:flex-start"><input type="checkbox" id="autoriza" style="position:static;opacity:1;margin-top:3px" />
         <span><strong>Autoriza el tratamiento de sus datos personales</strong><small>Obligatorio para registrar al paciente (Ley 1581 de 2012).</small></span></label>
       <div id="error-modal"></div>
