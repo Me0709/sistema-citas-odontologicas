@@ -396,9 +396,9 @@ async function modalRespuesta(id, cita) {
         de ${esc(x.horarioActual.horaInicio)} a <b>${esc(x.horarioPropuesto.horaInicio)}</b> (${esc(x.horarioPropuesto.fecha)}).</div>
       <p>Registre la respuesta de <strong>${esc(cita.paciente.nombre)}</strong>:</p>
       <div id="error-modal"></div>`,
-    pie: `<button type="button" class="btn peligro" data-rechazo>${ico('x-circulo')}Rechaza</button>
+    pie: `<button type="button" class="btn peligro" data-rechazo>${ico('x-circulo')}Rechazó</button>
           <button type="button" class="btn" data-cerrar>Decidir después</button>
-          <button type="button" class="btn primario" data-acepta>${ico('check')}Acepta</button>`,
+          <button type="button" class="btn primario" data-acepta>${ico('check')}Aceptó</button>`,
   });
   const responder = async (ruta, cuerpo, mensaje) => {
     try {
