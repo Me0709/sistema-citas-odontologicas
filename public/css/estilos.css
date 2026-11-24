@@ -1,7 +1,7 @@
 /* Agenda odontológica: tema claro, tonos aqua y azul tinta */
 :root {
-  --fondo: #f3f7fa;
-  --fondo-2: #e9f1f6;
+  --fondo: #f4f6f8;
+  --fondo-2: #eceff3;
   --superficie: #ffffff;
   --superficie-2: #f8fbfd;
   --tinta: #0f2a3d;
@@ -10,11 +10,11 @@
   --linea: #e2eaf1;
   --linea-fuerte: #cdd9e3;
 
-  --primario: #0d9a94;
-  --primario-osc: #0a7f7a;
-  --primario-suave: #e1f5f3;
-  --acento: #5568e8;
-  --acento-suave: #eceefe;
+  --primario: #0f766e;
+  --primario-osc: #115e59;
+  --primario-suave: #e4f1ef;
+  --acento: #4a5ba8;
+  --acento-suave: #eceef7;
 
   --ok: #1d9f65;
   --ok-suave: #e1f6ec;
@@ -29,8 +29,8 @@
   --gris: #6b7b8c;
   --gris-suave: #eef2f6;
 
-  --radio: 16px;
-  --radio-sm: 10px;
+  --radio: 10px;
+  --radio-sm: 7px;
   --sombra-1: 0 1px 2px rgba(15, 42, 61, 0.05), 0 1px 1px rgba(15, 42, 61, 0.03);
   --sombra-2: 0 8px 24px rgba(15, 42, 61, 0.08), 0 2px 6px rgba(15, 42, 61, 0.04);
   --sombra-3: 0 24px 60px rgba(15, 42, 61, 0.18);
@@ -50,9 +50,7 @@ body {
   font-size: 15px;
   line-height: 1.5;
   color: var(--tinta);
-  background:
-    radial-gradient(900px 480px at 100% -10%, #d9f0ee 0%, transparent 60%),
-    radial-gradient(700px 420px at -10% 110%, #e3e8fd 0%, transparent 55%), var(--fondo);
+  background: var(--fondo);
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
 }
@@ -124,11 +122,11 @@ svg.i {
   place-items: center;
   width: 44px;
   height: 44px;
-  border-radius: 14px;
+  border-radius: 10px;
   color: #fff;
   font-size: 22px;
-  background: linear-gradient(140deg, #14b8b0 0%, #0d9a94 45%, #5568e8 130%);
-  box-shadow: 0 8px 18px rgba(13, 154, 148, 0.35);
+  background: var(--primario-osc);
+  box-shadow: none;
 }
 .marca strong {
   display: block;
@@ -174,7 +172,7 @@ svg.i {
   margin-top: auto;
   padding: 14px;
   border-radius: 14px;
-  background: linear-gradient(160deg, var(--primario-suave), var(--acento-suave));
+  background: var(--primario-suave);
   font-size: 13px;
   color: var(--tinta-2);
 }
@@ -290,13 +288,13 @@ a.btn {
   transform: none;
 }
 .btn.primario {
-  background: linear-gradient(180deg, #12aea7, var(--primario));
+  background: var(--primario);
   border-color: var(--primario-osc);
   color: #fff;
-  box-shadow: 0 6px 16px rgba(13, 154, 148, 0.32);
+  box-shadow: 0 1px 2px rgba(15, 42, 61, 0.18);
 }
 .btn.primario:hover {
-  background: linear-gradient(180deg, #14b8b0, var(--primario-osc));
+  background: var(--primario-osc);
 }
 .btn.peligro {
   color: var(--peligro);
@@ -628,7 +626,7 @@ a.btn {
   color: #fff;
   font-weight: 700;
   font-size: 15px;
-  background: linear-gradient(140deg, var(--c1, #14b8b0), var(--c2, #5568e8));
+  background: var(--c1, var(--primario));
 }
 .cita-acciones {
   display: flex;
@@ -766,10 +764,10 @@ a.btn {
   place-items: center;
   width: 84px;
   height: 84px;
-  border-radius: 28px;
+  border-radius: 14px;
   font-size: 40px;
   color: var(--primario);
-  background: linear-gradient(150deg, var(--primario-suave), var(--acento-suave));
+  background: var(--primario-suave);
 }
 .vacio h3 {
   color: var(--tinta);
@@ -1049,7 +1047,7 @@ dialog {
   max-height: calc(100dvh - 24px);
   padding: 0;
   border: 0;
-  border-radius: 20px;
+  border-radius: 12px;
   background: var(--superficie);
   color: var(--tinta);
   box-shadow: var(--sombra-3);
@@ -1082,7 +1080,7 @@ dialog[open] {
   gap: 12px;
   padding: 18px 22px;
   border-bottom: 1px solid var(--linea);
-  background: linear-gradient(180deg, var(--superficie-2), var(--superficie));
+  background: var(--superficie);
 }
 .modal-cab h2 {
   display: flex;
@@ -1168,7 +1166,7 @@ dialog[open] {
 .explicacion {
   padding: 14px 16px;
   border-radius: 14px;
-  background: linear-gradient(160deg, var(--acento-suave), var(--primario-suave));
+  background: var(--primario-suave);
   font-size: 14px;
 }
 .explicacion strong {
@@ -1225,7 +1223,7 @@ dialog[open] {
     background: rgba(255, 255, 255, 0.92);
     backdrop-filter: blur(14px);
     border: 1px solid var(--linea);
-    border-radius: 20px;
+    border-radius: 12px;
     box-shadow: var(--sombra-3);
   }
   .barra-movil a {
@@ -1321,4 +1319,10 @@ dialog[open] {
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* La tarjeta con el menú abierto queda por encima de las siguientes */
+.cita:has(.menu) {
+  position: relative;
+  z-index: 40;
 }

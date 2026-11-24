@@ -24,6 +24,9 @@ const FLEXIBILIDADES = [
   { valor: 'mantener', titulo: 'Mantener el horario', texto: 'Debe ser atendido a su hora exacta.' },
 ];
 
+// Mismo valor que TIEMPO_MAXIMO_ESPERA_MIN del servidor (src/comun/constantes.ts)
+const TIEMPO_MAXIMO_ESPERA_MIN = 15;
+
 let fecha = hoyISO();
 let datos = null;
 let temporizador = null;
@@ -149,7 +152,20 @@ function acciones(c) {
 
   switch (c.estado) {
     case 'Programada':
-    case 'Confirmada':
+    case 'Confirmada': {
+      // Pasados 15 minutos de la hora programada ya no se admite la llegada: corresponde la inasistencia.
+      const esperaVencida = fecha === hoyISO() && minutos(horaActual()) > minutos(c.horaProgramada) + TIEMPO_MAXIMO_ESPERA_MIN;
+      if (esperaVencida) {
+        return (
+          boton('inasistencia', 'usuario-x', 'Registrar inasistencia', 'primario') +
+          menu([
+            item('llegada', 'entrar', 'Registrar llegada con otra hora'),
+            item('proponer', 'refrescar', 'Proponer nuevo horario'),
+            '<hr />',
+            item('cancelar', 'x-circulo', 'Cancelar cita', 'rojo'),
+          ])
+        );
+      }
       return (
         boton('llegada', 'entrar', 'Registrar llegada', 'primario') +
         menu([
@@ -161,6 +177,7 @@ function acciones(c) {
           item('cancelar', 'x-circulo', 'Cancelar cita', 'rojo'),
         ])
       );
+    }
     case 'En sala':
       return boton('inicio', 'reproducir', 'Iniciar atención', 'primario') + menu([item('cancelar', 'x-circulo', 'Cancelar cita', 'rojo')]);
     case 'En atención':
