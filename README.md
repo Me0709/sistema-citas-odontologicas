@@ -25,7 +25,19 @@ npm run build       # compilar
 npm test            # pruebas unitarias
 npm run test:cov    # pruebas unitarias con cobertura (mínimo 80 %)
 npm run test:e2e    # pruebas de aceptación sobre la API
+npm run demo:datos  # carga datos de ejemplo en el servidor en ejecución
 ```
+
+## Interfaz web
+
+Con el servidor en marcha, la interfaz queda en `http://localhost:3000/`. Es una aplicación estática
+(`public/`, JavaScript sin dependencias ni paso de compilación) que consume la misma API y se adapta
+a escritorio y celular. Permite ver y operar la agenda del día (llegada, atención, retrasos,
+cancelaciones, flexibilidad, propuestas de nuevo horario y análisis de alternativas), programar citas,
+gestionar pacientes y procedimientos, configurar el horario de atención y consultar los avisos.
+
+Para verla con datos de ejemplo: `npm run start:dev` y, en otra terminal, `npm run demo:datos`
+(solo sobre una base de desarrollo vacía).
 
 ## Estructura
 
@@ -44,6 +56,9 @@ src/
   reprogramacion/  propuestas de nuevo horario: confirmar o rechazar (HU-11)
   agenda/          agenda diaria del odontólogo (HU-12)
   salud/           endpoint GET /salud
+  interfaz/        publicación de la interfaz web
+public/            interfaz web (HTML, CSS y módulos JS)
+scripts/           datos de demostración
 test/              pruebas de aceptación (*.e2e-spec.ts)
 ```
 
