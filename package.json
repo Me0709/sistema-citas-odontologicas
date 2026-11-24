@@ -17,7 +17,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "demo:datos": "node scripts/cargar-datos-demo.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.11",
