@@ -83,6 +83,7 @@ aisladas como funciones puras en `src/reordenamiento/dominio`.
 ## Limitaciones conocidas
 
 - Las notificaciones quedan registradas en el sistema (`GET /notificaciones`); no hay un proveedor real de correo o SMS.
+- La hora estimada de un paciente flexible puede adelantarse hasta dentro del descanso del odontólogo (por ejemplo, de las 14:00 a las 12:15), porque el recálculo no considera el horario de atención.
 - La inasistencia se registra a mano; no hay un proceso programado que la marque al vencer el tiempo de espera.
 - El sistema asume un solo odontólogo y una sola agenda.
 - Las alternativas de reprogramación se calculan para la agenda del día y no se convierten automáticamente en propuestas de la HU-11.

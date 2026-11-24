@@ -140,6 +140,11 @@ document.addEventListener('click', (e) => {
     menu.setAttribute('role', 'menu');
     menu.innerHTML = boton.dataset.menu;
     boton.parentElement.append(menu);
+    // Si no cabe debajo del botón, se abre hacia arriba
+    const caja = menu.getBoundingClientRect();
+    if (caja.bottom > window.innerHeight - 8 && boton.getBoundingClientRect().top - caja.height > 8) {
+      menu.classList.add('arriba');
+    }
   } else if (boton) {
     boton.parentElement.querySelector('.menu')?.remove();
   }
